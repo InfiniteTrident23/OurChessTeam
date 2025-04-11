@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Button } from "../ui/button";
 export function Navbar(){
     return (
         <nav className="py-5 flex item-center justify-between">
@@ -15,8 +16,9 @@ export function Navbar(){
                     Dashboard
                 </Link>
             </div>
-            <div className="flex text-white items-center gap-4">
-                <button />Sign Up
+            <div className="flex text-black items-center gap-4">
+                <Button>Login In</Button>
+                <Button variant="secondary">Sign Up</Button>
             </div>
         </nav>
     )
