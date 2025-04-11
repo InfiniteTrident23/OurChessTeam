@@ -15,8 +15,8 @@ export function Navbar(){
                     Dashboard
                 </Link>
             </div>
-            <div className="flex items-center gap-4">
-                <button>Sign Up</button>
+            <div className="flex text-white items-center gap-4">
+                <button />Sign Up
             </div>
         </nav>
     )
