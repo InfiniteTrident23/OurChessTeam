@@ -3,8 +3,8 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <div>
-      <h1 className="text-white">Hello from Home Page</h1>
+    <div className="py-6">
+      <h1 className="text-3xl font-bold tracking-tight mb-8">Hello People of the World!</h1>
     </div>
   );
 }

@@ -4,7 +4,7 @@ export function Navbar(){
     return (
         <nav className="py-5 flex item-center justify-between">
             <div className="flex items-center gap-6">
-                <Link href="/Blog" className="text-blue-500 hover:text-gray-900">
+                <Link href="/Blogs" className="text-blue-500 hover:text-gray-900">
                     <h1 className="text-2xl font-bold">Blog</h1>
                 </Link>
             <Link href="/">
