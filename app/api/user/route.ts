@@ -31,6 +31,8 @@ export async function POST(req: Request) { //Registering new user
         });
         const {password: newUserPassword, ...rest} = newUser; // remove password from the response
         return NextResponse.json({user: rest, message: "User created successfully"}, {status: 201});
-    } catch (error) {}
+    } catch (error) {
+        return NextResponse.json({message: "Something went wrong!"}, {status: 500});
+    }
 
 }
