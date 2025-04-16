@@ -1,88 +1,78 @@
-import { useState } from "react";
+'use client';
 
-const SignUp = () => {
-    const [formData, setFormData] = useState({
-        name: "",
-        email: "",
-        password: "",
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export default function SignUpPage() {
+  const router = useRouter();
+  const [form, setForm] = useState({
+    username: '',
+    email: '',
+    password: ''
+  });
+
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+
+    const res = await fetch('/api/user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form),
     });
 
-    const [error, setError] = useState("");
-    const [success, setSuccess] = useState("");
+    const data = await res.json();
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setFormData((prev) => ({ ...prev, [name]: value }));
-    };
+    if (!res.ok) {
+      setError(data.message);
+      setSuccess('');
+    } else {
+      setSuccess(data.message);
+      setError('');
+      setTimeout(() => router.push('/Dashboard'), 1500); // Redirect after success
+    }
+  }
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError("");
-        setSuccess("");
+  return (
+    <div className="max-w-md mx-auto mt-10 p-6 bg-white dark:bg-zinc-900 shadow-lg rounded-xl">
+      <h2 className="text-2xl font-bold mb-6 text-center">Sign Up</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <input
+          type="text"
+          placeholder="Username"
+          className="w-full p-2 border rounded"
+          value={form.username}
+          onChange={(e) => setForm({ ...form, username: e.target.value })}
+          required
+        />
+        <input
+          type="email"
+          placeholder="Email"
+          className="w-full p-2 border rounded"
+          value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          className="w-full p-2 border rounded"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          required
+        />
+        <button
+          type="submit"
+          className="w-full py-2 bg-blue-500 text-white font-semibold rounded hover:bg-blue-600"
+        >
+          Create Account
+        </button>
+      </form>
 
-        try {
-            const response = await fetch("/api/user", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(formData),
-            });
-
-            if (!response.ok) {
-                throw new Error("Failed to sign up");
-            }
-
-            setSuccess("User signed up successfully!");
-            setFormData({ name: "", email: "", password: "" });
-        } catch (err: any) {
-            setError(err.message || "Something went wrong");
-        }
-    };
-
-    return (
-        <div className="signup-container">
-            <h1>Sign Up</h1>
-            <form onSubmit={handleSubmit}>
-                <div>
-                    <label htmlFor="name">Name:</label>
-                    <input
-                        type="text"
-                        id="name"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
-                <div>
-                    <label htmlFor="email">Email:</label>
-                    <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
-                <div>
-                    <label htmlFor="password">Password:</label>
-                    <input
-                        type="password"
-                        id="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
-                <button type="submit">Sign Up</button>
-            </form>
-            {error && <p className="error">{error}</p>}
-            {success && <p className="success">{success}</p>}
-        </div>
-    );
-};
-
-export default SignUp;
+      {error && <p className="mt-4 text-red-500 text-center">{error}</p>}
+      {success && <p className="mt-4 text-green-500 text-center">{success}</p>}
+    </div>
+  );
+}
