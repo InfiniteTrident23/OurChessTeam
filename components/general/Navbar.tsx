@@ -17,9 +17,11 @@ export function Navbar(){
                 </Link>
             </div>
             <div className="flex text-black items-center gap-4">
-                <Button>Login In</Button>
-                <Link href="/SignUp"><Button variant="secondary">Sign Up</Button></Link>
+            <Link href="/login"><Button>Login</Button></Link>
+            <Link href="/SignUp"><Button variant="secondary">Sign Up</Button></Link>
             </div>
+
+            
         </nav>
     )
 }
