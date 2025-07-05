@@ -9,6 +9,11 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "ChessMaster - Play Chess Online",
   description: "Join tournaments and play chess online with players worldwide",
+  icons: {
+    icon: '/favicon_io/favicon.ico',
+    shortcut: '/favicon_io/favicon-16x16.png',
+    apple: '/favicon_io/apple-touch-icon.png',
+  },
 }
 
 export default function RootLayout({
