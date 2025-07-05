@@ -1,3 +1,6 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,23 +11,361 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model BlogPost {
-  id          String   @id
-  title       String
-  content     String
-  imageUrl    String?
-  authorId    String?
-  authorName  String?
-  authorImage String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime
-}
-
 model User {
-  id        Int   @id @default(autoincrement())
-  email     String?  @unique
-  username  String? @unique
-  password String?
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  password  String   // In production, this should be hashed
+  avatar    String?  // URL to profile picture
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Profile information
+  firstName String?
+  lastName  String?
+  country   String?
+  bio       String?
+
+  // Chess ratings
+  blitzRating     Int @default(1200)
+  rapidRating     Int @default(1200)
+  classicalRating Int @default(1200)
+
+  // Account status
+  isActive    Boolean @default(true)
+  isVerified  Boolean @default(false)
+  lastLoginAt DateTime?
+
+  // Relationships
+  gamesAsWhite        Game[]                   @relation("WhitePlayer")
+  gamesAsBlack        Game[]                   @relation("BlackPlayer")
+  createdRooms        GameRoom[]               @relation("RoomCreator")
+  joinedRooms         GameRoomParticipant[]
+  tournamentEntries   TournamentParticipant[]
+  chatMessages        ChatMessage[]
+  gameInvitesSent     GameInvite[]             @relation("InviteSender")
+  gameInvitesReceived GameInvite[]             @relation("InviteReceiver")
+  userStats           UserStats?
+
+  @@map("users")
+}
+
+model UserStats {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Game statistics
+  totalGames    Int @default(0)
+  wins          Int @default(0)
+  losses        Int @default(0)
+  draws         Int @default(0)
+  winPercentage Float @default(0.0)
+
+  // Time control specific stats
+  blitzGames     Int @default(0)
+  blitzWins      Int @default(0)
+  rapidGames     Int @default(0)
+  rapidWins      Int @default(0)
+  classicalGames Int @default(0)
+  classicalWins  Int @default(0)
+
+  // Streaks
+  currentWinStreak Int @default(0)
+  longestWinStreak Int @default(0)
+
+  // Tournament stats
+  tournamentsPlayed Int @default(0)
+  tournamentsWon    Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_stats")
+}
+
+model Tournament {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  startDate   DateTime
+  endDate     DateTime?
+  
+  // Tournament settings
+  maxParticipants Int
+  entryFee        Float?
+  prizePool       Float?
+  timeControl     String // e.g., "10+5", "5+3"
+  tournamentType  TournamentType @default(SWISS)
+  
+  // Status and location
+  status   TournamentStatus @default(UPCOMING)
+  location String? // "Online" or physical location
+  
+  // Tournament rules
+  rounds       Int?
+  isRated      Boolean @default(true)
+  minRating    Int?
+  maxRating    Int?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  participants TournamentParticipant[]
+  games        Game[]
+
+  @@map("tournaments")
+}
+
+model TournamentParticipant {
+  id           String @id @default(cuid())
+  tournamentId String
+  userId       String
+  
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Participant status
+  registeredAt DateTime @default(now())
+  score        Float    @default(0)
+  rank         Int?
+  isActive     Boolean  @default(true)
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_participants")
+}
+
+model GameRoom {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdById String
+  
+  creator User @relation("RoomCreator", fields: [createdById], references: [id])
+  
+  // Room settings
+  maxPlayers   Int      @default(2)
+  timeControl  String   // e.g., "10+5", "5+3"
+  isPrivate    Boolean  @default(false)
+  password     String?  // For private rooms
+  isRated      Boolean  @default(true)
+  
+  // Room status
+  status    RoomStatus @default(WAITING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  // Relationships
+  participants GameRoomParticipant[]
+  games        Game[]
+  chatMessages ChatMessage[]
+
+  @@map("game_rooms")
+}
+
+model GameRoomParticipant {
+  id       String @id @default(cuid())
+  roomId   String
+  userId   String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room GameRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  joinedAt DateTime @default(now())
+  isActive Boolean  @default(true)
+
+  @@unique([roomId, userId])
+  @@map("game_room_participants")
+}
+
+model Game {
+  id String @id @default(cuid())
+  
+  // Players
+  whitePlayerId String
+  blackPlayerId String
+  whitePlayer   User   @relation("WhitePlayer", fields: [whitePlayerId], references: [id])
+  blackPlayer   User   @relation("BlackPlayer", fields: [blackPlayerId], references: [id])
+  
+  // Game context
+  roomId       String?
+  tournamentId String?
+  room         GameRoom?    @relation(fields: [roomId], references: [id])
+  tournament   Tournament? @relation(fields: [tournamentId], references: [id])
+  
+  // Game settings
+  timeControl    String // e.g., "10+5", "5+3"
+  isRated        Boolean @default(true)
+  variant        GameVariant @default(STANDARD)
+  
+  // Game state
+  status         GameStatus @default(WAITING)
+  result         GameResult?
+  winner         String? // "white", "black", or null for draw
+  terminationReason String? // "checkmate", "resignation", "timeout", etc.
+  
+  // Time tracking
+  whiteTimeLeft Int? // Time left in milliseconds
+  blackTimeLeft Int? // Time left in milliseconds
+  
+  // Game data
+  pgn           String? // Portable Game Notation
+  fen           String  @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") // Current position
+  currentTurn   String  @default("white") // "white" or "black"
+  moveCount     Int     @default(0)
+  
+  // Timestamps
+  startedAt  DateTime?
+  endedAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Relationships
+  moves        GameMove[]
+  chatMessages ChatMessage[]
+
+  @@map("games")
+}
+
+model GameMove {
+  id     String @id @default(cuid())
+  gameId String
+  game   Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  
+  // Move details
+  moveNumber    Int
+  player        String // "white" or "black"
+  from          String // e.g., "e2"
+  to            String // e.g., "e4"
+  piece         String // e.g., "pawn", "knight"
+  capturedPiece String? // If a piece was captured
+  promotion     String? // If pawn promoted, what piece
+  
+  // Move notation
+  san String // Standard Algebraic Notation, e.g., "e4", "Nf3"
+  uci String // Universal Chess Interface, e.g., "e2e4"
+  
+  // Position after move
+  fen String
+  
+  // Time tracking
+  timeSpent    Int? // Time spent on this move in milliseconds
+  timeLeft     Int? // Time left after this move
+  
+  // Move annotations
+  isCheck      Boolean @default(false)
+  isCheckmate  Boolean @default(false)
+  isCapture    Boolean @default(false)
+  isCastling   Boolean @default(false)
+  isEnPassant  Boolean @default(false)
+  
+  createdAt DateTime @default(now())
+
+  @@map("game_moves")
+}
+
+model GameInvite {
+  id         String @id @default(cuid())
+  senderId   String
+  receiverId String
+  
+  sender   User @relation("InviteSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("InviteReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  
+  // Invite details
+  timeControl String
+  isRated     Boolean @default(true)
+  message     String?
+  
+  // Status
+  status    InviteStatus @default(PENDING)
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@map("game_invites")
+}
+
+model ChatMessage {
+  id       String @id @default(cuid())
+  content  String
+  senderId String
+  
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  
+  // Message context (either in a room or game)
+  roomId String?
+  gameId String?
+  room   GameRoom? @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  game   Game?     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  
+  // Message type
+  messageType MessageType @default(CHAT)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("chat_messages")
+}
+
+// Enums
+enum TournamentType {
+  SWISS
+  ROUND_ROBIN
+  KNOCKOUT
+  ARENA
+}
+
+enum TournamentStatus {
+  UPCOMING
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RoomStatus {
+  WAITING
+  FULL
+  IN_GAME
+  CLOSED
+}
+
+enum GameStatus {
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  ABORTED
+}
+
+enum GameResult {
+  WHITE_WINS
+  BLACK_WINS
+  DRAW
+  ABORTED
+}
+
+enum GameVariant {
+  STANDARD
+  CHESS960
+  KING_OF_THE_HILL
+  THREE_CHECK
+  ATOMIC
+  HORDE
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum MessageType {
+  CHAT
+  SYSTEM
+  GAME_EVENT
 }

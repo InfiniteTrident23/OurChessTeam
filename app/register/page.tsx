@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -11,30 +10,48 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [username, setUsername] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError("")
+    setSuccess("")
 
-    // Simulate login process
-    setTimeout(() => {
-      if (email && password) {
-        // Mock successful login
-        localStorage.setItem("isLoggedIn", "true")
-        localStorage.setItem("userEmail", email)
-        router.push("/Dashboard")
-      } else {
-        setError("Please fill in all fields")
-      }
+    if (password !== confirmPassword) {
+      setError("Passwords don't match")
       setIsLoading(false)
-    }, 1000)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Registration failed');
+      }
+
+      setSuccess(data.message || 'Registration successful!');
+      setTimeout(() => router.push("/Dashboard"), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -52,8 +69,8 @@ export default function LoginPage() {
 
         <Card className="bg-slate-800 border-slate-700">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl text-white">Welcome Back</CardTitle>
-            <CardDescription className="text-slate-300">Sign in to your account to start playing</CardDescription>
+            <CardTitle className="text-2xl text-white">Create Account</CardTitle>
+            <CardDescription className="text-slate-300">Join OurChessTeam and start playing today</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -62,6 +79,27 @@ export default function LoginPage() {
                   <AlertDescription className="text-red-200">{error}</AlertDescription>
                 </Alert>
               )}
+              
+              {success && (
+                <Alert className="bg-green-900/50 border-green-700">
+                  <AlertDescription className="text-green-200">{success}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="username" className="text-white">
+                  Username
+                </Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="Choose a username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                  required
+                />
+              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-white">
@@ -85,9 +123,24 @@ export default function LoginPage() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Enter your password"
+                  placeholder="Create a password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-white">
+                  Confirm Password
+                </Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="Confirm your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                   className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
                   required
                 />
@@ -98,15 +151,15 @@ export default function LoginPage() {
                 className="w-full bg-amber-600 hover:bg-amber-700 text-slate-900"
                 disabled={isLoading}
               >
-                {isLoading ? "Signing in..." : "Sign In"}
+                {isLoading ? "Creating account..." : "Create Account"}
               </Button>
             </form>
 
             <div className="mt-6 text-center">
               <p className="text-slate-300">
-                Don't have an account?{" "}
-                <Link href="/register" className="text-amber-400 hover:text-amber-300">
-                  Sign up
+                Already have an account?{" "}
+                <Link href="/login" className="text-amber-400 hover:text-amber-300">
+                  Sign in
                 </Link>
               </p>
             </div>
