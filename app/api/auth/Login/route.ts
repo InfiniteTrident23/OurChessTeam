@@ -17,7 +17,7 @@ export async function POST(req: Request) {
 
     // 2. Find user (case-insensitive email)
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: email },
     });
 
     // 3. Verify user exists and password matches
