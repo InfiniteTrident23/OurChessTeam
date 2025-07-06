@@ -46,7 +46,7 @@ export default function RegisterPage() {
       }
 
       setSuccess(data.message || 'Registration successful!');
-      setTimeout(() => router.push("/Dashboard"), 1500);
+      setTimeout(() => router.push("/"), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
