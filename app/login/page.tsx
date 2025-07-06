@@ -19,23 +19,37 @@ export default function LoginPage() {
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+  e.preventDefault()
+  setIsLoading(true)
+  setError("")
 
-    // Simulate login process
-    setTimeout(() => {
-      if (email && password) {
-        // Mock successful login
-        localStorage.setItem("isLoggedIn", "true")
-        localStorage.setItem("userEmail", email)
-        router.push("/Dashboard")
-      } else {
-        setError("Please fill in all fields")
-      }
-      setIsLoading(false)
-    }, 1000)
+  try {
+    const res = await fetch("/api/auth/Login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      throw new Error(data.message || "Login failed")
+    }
+
+    // You can store user/token/etc. as needed
+    localStorage.setItem("isLoggedIn", "true")
+    localStorage.setItem("userEmail", email)
+
+    router.push("/Dashboard")
+  } catch (err: any) {
+    setError(err.message || "Something went wrong")
+  } finally {
+    setIsLoading(false)
   }
+}
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
