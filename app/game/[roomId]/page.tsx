@@ -53,7 +53,7 @@ export default function GamePage() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Link href="/dashboard">
+              <Link href="/Dashboard">
                 <Button
                   variant="outline"
                   size="sm"
