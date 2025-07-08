@@ -35,6 +35,9 @@ class ChessGame {
     this.moves = []
     this.spectators = new Set()
     this.createdAt = new Date()
+    // Draw offer system
+    this.drawOffers = new Map() // player -> timestamp
+    this.drawOfferedBy = null // which player offered draw
   }
 
   addPlayer(playerEmail, color) {
@@ -63,6 +66,48 @@ class ChessGame {
     })
     this.boardState = newBoardState
     this.currentTurn = this.currentTurn === "white" ? "black" : "white"
+
+    // Clear any pending draw offers when a move is made
+    this.drawOffers.clear()
+    this.drawOfferedBy = null
+
+    return true
+  }
+
+  offerDraw(playerEmail) {
+    const playerColor = this.whitePlayer === playerEmail ? "white" : "black"
+
+    // Can't offer draw if it's not your turn or game isn't playing
+    if (this.status !== "playing") return false
+
+    // Check if this player already offered a draw
+    if (this.drawOfferedBy === playerColor) return false
+
+    this.drawOffers.set(playerColor, new Date())
+    this.drawOfferedBy = playerColor
+    return true
+  }
+
+  acceptDraw(playerEmail) {
+    const playerColor = this.whitePlayer === playerEmail ? "white" : "black"
+    const opponentColor = playerColor === "white" ? "black" : "white"
+
+    // Can only accept if opponent offered draw
+    if (this.drawOfferedBy !== opponentColor) return false
+
+    this.endGame(null, "draw by agreement")
+    return true
+  }
+
+  declineDraw(playerEmail) {
+    const playerColor = this.whitePlayer === playerEmail ? "white" : "black"
+    const opponentColor = playerColor === "white" ? "black" : "white"
+
+    // Can only decline if opponent offered draw
+    if (this.drawOfferedBy !== opponentColor) return false
+
+    this.drawOffers.clear()
+    this.drawOfferedBy = null
     return true
   }
 
@@ -71,6 +116,10 @@ class ChessGame {
     this.winner = winner
     this.endReason = reason
     this.endedAt = new Date()
+
+    // Clear any pending draw offers
+    this.drawOffers.clear()
+    this.drawOfferedBy = null
   }
 
   getGameState() {
@@ -85,6 +134,7 @@ class ChessGame {
       spectatorCount: this.spectators.size,
       winner: this.winner,
       endReason: this.endReason,
+      drawOfferedBy: this.drawOfferedBy, // Add draw offer info
     }
   }
 }
@@ -178,12 +228,91 @@ io.on("connection", (socket) => {
         moveData,
         gameState: game.getGameState(),
       })
-
-      // TODO: Save move to Supabase database here
-      // await saveMoveToDB(game.getGameState());
     } catch (error) {
       console.error("Error making move:", error)
       socket.emit("error", { message: "Failed to make move" })
+    }
+  })
+
+  // Handle draw offers
+  socket.on("offer-draw", async (data) => {
+    const { roomId } = data
+    const userEmail = socket.userEmail
+
+    try {
+      const game = activeGames.get(roomId)
+
+      if (!game) {
+        socket.emit("error", { message: "Game not found" })
+        return
+      }
+
+      const success = game.offerDraw(userEmail)
+
+      if (!success) {
+        socket.emit("error", { message: "Cannot offer draw at this time" })
+        return
+      }
+
+      const playerColor = game.whitePlayer === userEmail ? "white" : "black"
+      console.log(`Draw offered in room ${roomId} by ${userEmail} (${playerColor})`)
+
+      // Notify all players about the draw offer
+      io.to(roomId).emit("draw-offered", {
+        offeredBy: playerColor,
+        gameState: game.getGameState(),
+      })
+    } catch (error) {
+      console.error("Error offering draw:", error)
+      socket.emit("error", { message: "Failed to offer draw" })
+    }
+  })
+
+  // Handle draw responses
+  socket.on("respond-to-draw", async (data) => {
+    const { roomId, accept } = data
+    const userEmail = socket.userEmail
+
+    try {
+      const game = activeGames.get(roomId)
+
+      if (!game) {
+        socket.emit("error", { message: "Game not found" })
+        return
+      }
+
+      let success = false
+      if (accept) {
+        success = game.acceptDraw(userEmail)
+      } else {
+        success = game.declineDraw(userEmail)
+      }
+
+      if (!success) {
+        socket.emit("error", { message: "Cannot respond to draw offer" })
+        return
+      }
+
+      const playerColor = game.whitePlayer === userEmail ? "white" : "black"
+      console.log(`Draw ${accept ? "accepted" : "declined"} in room ${roomId} by ${userEmail} (${playerColor})`)
+
+      if (accept) {
+        // Game ended in draw
+        io.to(roomId).emit("game-ended", {
+          winner: null,
+          reason: "draw by agreement",
+          gameState: game.getGameState(),
+        })
+      } else {
+        // Draw declined, continue game
+        io.to(roomId).emit("draw-declined", {
+          declinedBy: playerColor,
+          gameState: game.getGameState(),
+        })
+      }
+    } catch (error) {
+      console.error("Error responding to draw:", error)
+      socket.emit("error", { message: "Failed to respond to draw" })
     }
   })
 
@@ -213,9 +342,6 @@ io.on("connection", (socket) => {
         reason: "resignation",
         gameState: game.getGameState(),
       })
-
-      // TODO: Save final game state to Supabase
-      // await saveGameToDB(game.getGameState());
     } catch (error) {
       console.error("Error resigning game:", error)
       socket.emit("error", { message: "Failed to resign game" })

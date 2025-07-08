@@ -20,6 +20,7 @@ interface GameState {
   spectatorCount: number
   winner?: string
   endReason?: string
+  drawOfferedBy?: "white" | "black" | null
 }
 
 interface ChatMessage {
@@ -36,6 +37,7 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [drawOfferReceived, setDrawOfferReceived] = useState<string | null>(null)
 
   // Initialize socket connection
   useEffect(() => {
@@ -71,21 +73,45 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
     newSocket.on("game-state", (state: GameState) => {
       console.log("Received game state:", state)
       setGameState(state)
+
+      // Check for existing draw offers when receiving game state
+      if (state.drawOfferedBy) {
+        const userColor = state.whitePlayer === userEmail ? "white" : state.blackPlayer === userEmail ? "black" : null
+        if (state.drawOfferedBy !== userColor) {
+          console.log("Draw offer detected in game state from:", state.drawOfferedBy)
+          setDrawOfferReceived(state.drawOfferedBy)
+        }
+      }
     })
 
     newSocket.on("game-updated", (state: GameState) => {
       console.log("Game updated:", state)
       setGameState(state)
+
+      // Check for draw offers in updated game state
+      if (state.drawOfferedBy) {
+        const userColor = state.whitePlayer === userEmail ? "white" : state.blackPlayer === userEmail ? "black" : null
+        if (state.drawOfferedBy !== userColor) {
+          console.log("Draw offer detected in game update from:", state.drawOfferedBy)
+          setDrawOfferReceived(state.drawOfferedBy)
+        }
+      } else {
+        // Clear draw offer if it's no longer in the game state
+        setDrawOfferReceived(null)
+      }
     })
 
     newSocket.on("move-made", (data) => {
       console.log("Move made:", data)
       setGameState(data.gameState)
+      // Clear any draw offers when a move is made
+      setDrawOfferReceived(null)
     })
 
     newSocket.on("game-ended", (data) => {
       console.log("Game ended:", data)
       setGameState(data.gameState)
+      setDrawOfferReceived(null)
     })
 
     newSocket.on("player-joined", (data) => {
@@ -101,6 +127,35 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
     newSocket.on("player-reconnected", (data) => {
       console.log("Player reconnected:", data)
       setGameState(data.gameState)
+    })
+
+    // Draw offer event listeners
+    newSocket.on("draw-offered", (data) => {
+      console.log("Draw offered event received:", data)
+      setGameState(data.gameState)
+
+      // Determine user's color from current game state or the updated state
+      const currentGameState = gameState || data.gameState
+      const userColor =
+        currentGameState.whitePlayer === userEmail
+          ? "white"
+          : currentGameState.blackPlayer === userEmail
+            ? "black"
+            : null
+
+      console.log("User color:", userColor, "Draw offered by:", data.offeredBy)
+
+      // Show draw offer notification if it's not from the current user
+      if (data.offeredBy !== userColor && userColor) {
+        console.log("Setting draw offer received from:", data.offeredBy)
+        setDrawOfferReceived(data.offeredBy)
+      }
+    })
+
+    newSocket.on("draw-declined", (data) => {
+      console.log("Draw declined:", data)
+      setGameState(data.gameState)
+      setDrawOfferReceived(null)
     })
 
     // Chat event listeners
@@ -121,7 +176,7 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
       console.log("Cleaning up socket connection")
       newSocket.disconnect()
     }
-  }, [serverUrl, userEmail, userName])
+  }, [serverUrl, userEmail, userName]) // Remove gameState from dependencies to avoid infinite loop
 
   // Join a game room
   const joinRoom = useCallback(
@@ -177,6 +232,35 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
     [socket, connected],
   )
 
+  // Offer draw
+  const offerDraw = useCallback(
+    (roomId: string) => {
+      if (!socket || !connected) {
+        console.error("Socket not connected")
+        return
+      }
+
+      console.log("Offering draw for room:", roomId)
+      socket.emit("offer-draw", { roomId })
+    },
+    [socket, connected],
+  )
+
+  // Respond to draw offer
+  const respondToDraw = useCallback(
+    (roomId: string, accept: boolean) => {
+      if (!socket || !connected) {
+        console.error("Socket not connected")
+        return
+      }
+
+      console.log("Responding to draw:", accept ? "accept" : "decline")
+      socket.emit("respond-to-draw", { roomId, accept })
+      setDrawOfferReceived(null)
+    },
+    [socket, connected],
+  )
+
   // Resign game
   const resignGame = useCallback(
     (roomId: string) => {
@@ -228,8 +312,11 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
     gameState,
     messages,
     error,
+    drawOfferReceived,
     joinRoom,
     makeMove,
+    offerDraw,
+    respondToDraw,
     resignGame,
     sendMessage,
     reconnectToRoom,

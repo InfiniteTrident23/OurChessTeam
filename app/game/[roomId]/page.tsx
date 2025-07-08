@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Users, Clock, MessageCircle, Send } from "lucide-react"
+import { ArrowLeft, Users, Clock, MessageCircle, Send, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import RealtimeChessBoard from "@/components/realtime-chess-board"
 import { useSocket } from "@/hooks/useSocket"
 
@@ -39,7 +40,19 @@ export default function GamePage() {
     }
   }, [router])
 
-  const { connected, gameState, messages, error, joinRoom, makeMove, resignGame, sendMessage } = useSocket({
+  const {
+    connected,
+    gameState,
+    messages,
+    error,
+    drawOfferReceived,
+    joinRoom,
+    makeMove,
+    offerDraw,
+    respondToDraw,
+    resignGame,
+    sendMessage,
+  } = useSocket({
     userEmail,
     userName,
   })
@@ -51,6 +64,21 @@ export default function GamePage() {
       joinRoom(roomId)
     }
   }, [mounted, userEmail, userName, connected, roomId, joinRoom])
+
+  // Debug logging for draw offers
+  useEffect(() => {
+    console.log("Draw offer state changed:", {
+      drawOfferReceived,
+      gameStateDrawOffer: gameState?.drawOfferedBy,
+      userEmail,
+      gameState: gameState
+        ? {
+            whitePlayer: gameState.whitePlayer,
+            blackPlayer: gameState.blackPlayer,
+          }
+        : null,
+    })
+  }, [drawOfferReceived, gameState?.drawOfferedBy, userEmail, gameState])
 
   if (!mounted) {
     return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" />
@@ -111,6 +139,18 @@ export default function GamePage() {
     return await makeMove(roomId, from, to, newBoardState, moveData)
   }
 
+  const handleOfferDraw = () => {
+    if (userColor && gameState.status === "playing") {
+      console.log("Offering draw as", userColor)
+      offerDraw(roomId)
+    }
+  }
+
+  const handleRespondToDraw = (accept: boolean) => {
+    console.log("Responding to draw:", accept)
+    respondToDraw(roomId, accept)
+  }
+
   const handleResign = () => {
     if (userColor && gameState.status === "playing") {
       resignGame(roomId)
@@ -123,6 +163,22 @@ export default function GamePage() {
       setChatMessage("")
     }
   }
+
+  // Check if current user has offered draw
+  const hasOfferedDraw = gameState.drawOfferedBy === userColor
+
+  // Check if opponent has offered draw - use both sources for reliability
+  const opponentOfferedDraw =
+    (drawOfferReceived && drawOfferReceived !== userColor) ||
+    (gameState.drawOfferedBy && gameState.drawOfferedBy !== userColor)
+
+  console.log("Draw offer status:", {
+    hasOfferedDraw,
+    opponentOfferedDraw,
+    drawOfferReceived,
+    gameStateDrawOffer: gameState.drawOfferedBy,
+    userColor,
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -167,6 +223,45 @@ export default function GamePage() {
       </header>
 
       <div className="container mx-auto px-4 py-8">
+        {/* Draw Offer Alert */}
+        {opponentOfferedDraw && (
+          <Alert className="mb-6 bg-blue-900/50 border-blue-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-blue-200">
+              <div className="font-semibold mb-2">Your opponent has offered a draw!</div>
+              <div className="text-sm mb-3">Do you want to accept the draw and end the game?</div>
+              <div className="flex space-x-2">
+                <Button
+                  size="sm"
+                  onClick={() => handleRespondToDraw(true)}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  Accept Draw
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleRespondToDraw(false)}
+                  className="border-red-600 text-red-400 hover:bg-red-900/20"
+                >
+                  Decline Draw
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Draw Offered by User Alert */}
+        {hasOfferedDraw && !opponentOfferedDraw && (
+          <Alert className="mb-6 bg-yellow-900/50 border-yellow-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-yellow-200">
+              <div className="font-semibold">Draw offer sent!</div>
+              <div className="text-sm mt-1">Waiting for your opponent's response...</div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid lg:grid-cols-4 gap-8">
           {/* Game Board */}
           <div className="lg:col-span-3">
@@ -207,6 +302,9 @@ export default function GamePage() {
                       {gameState.currentTurn === player.color && gameState.status === "playing" && (
                         <span className="text-amber-400 text-sm">●</span>
                       )}
+                      {gameState.drawOfferedBy === player.color && (
+                        <span className="text-blue-400 text-xs">(offered draw)</span>
+                      )}
                     </div>
                     <div className={`w-2 h-2 rounded-full ${player.connected ? "bg-green-500" : "bg-red-500"}`} />
                   </div>
@@ -246,10 +344,13 @@ export default function GamePage() {
               <CardContent className="p-4 space-y-2">
                 <Button
                   variant="outline"
-                  className="w-full bg-transparent border-slate-600 text-white hover:bg-slate-700"
-                  disabled={gameState.status !== "playing" || !userColor}
+                  className={`w-full bg-transparent border-slate-600 text-white hover:bg-slate-700 ${
+                    hasOfferedDraw ? "border-yellow-600 text-yellow-400" : ""
+                  }`}
+                  disabled={gameState.status !== "playing" || !userColor || hasOfferedDraw}
+                  onClick={handleOfferDraw}
                 >
-                  Offer Draw
+                  {hasOfferedDraw ? "Draw Offered - Waiting..." : "Offer Draw"}
                 </Button>
                 <Button
                   variant="outline"
@@ -312,11 +413,13 @@ export default function GamePage() {
             </Card>
 
             {/* Game Status */}
-            {gameState.winner && (
+            {gameState.winner !== undefined && (
               <Card className="bg-slate-800 border-slate-700">
                 <CardContent className="p-4 text-center">
                   <div className="text-amber-400 font-semibold text-lg">
-                    {gameState.winner === "white" ? "White" : "Black"} Wins!
+                    {gameState.winner === null
+                      ? "Game Drawn!"
+                      : `${gameState.winner === "white" ? "White" : "Black"} Wins!`}
                   </div>
                   {gameState.endReason && <div className="text-slate-400 text-sm mt-1">by {gameState.endReason}</div>}
                 </CardContent>
