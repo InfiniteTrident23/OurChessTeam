@@ -19,37 +19,42 @@ export default function LoginPage() {
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  setIsLoading(true)
-  setError("")
+    e.preventDefault()
+    setIsLoading(true)
+    setError("")
 
-  try {
-    const res = await fetch("/api/auth/Login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email, password }),
-    })
+    try {
+      const response = await fetch("/api/auth/Login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      })
 
-    const data = await res.json()
+      const data = await response.json()
 
-    if (!res.ok) {
-      throw new Error(data.message || "Login failed")
+      if (response.ok) {
+        // Store user data in localStorage
+        localStorage.setItem("isLoggedIn", "true")
+        localStorage.setItem("userEmail", email)
+        localStorage.setItem("userName", data.user.username)
+        localStorage.setItem("userTrophies", data.user.trophies.toString())
+
+        router.push("/Dashboard")
+      } else {
+        setError(data.message || "Login failed")
+      }
+    } catch (error) {
+      console.error("Login error:", error)
+      setError("Something went wrong. Please try again.")
+    } finally {
+      setIsLoading(false)
     }
-
-    // You can store user/token/etc. as needed
-    localStorage.setItem("isLoggedIn", "true")
-    localStorage.setItem("userEmail", email)
-
-    router.push("/Dashboard")
-  } catch (err: any) {
-    setError(err.message || "Something went wrong")
-  } finally {
-    setIsLoading(false)
   }
-}
-
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
@@ -60,7 +65,7 @@ export default function LoginPage() {
             <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center">
               <span className="text-slate-900 font-bold text-xl">♔</span>
             </div>
-            <span className="text-2xl font-bold text-white">OurChessTeam</span>
+            <span className="text-2xl font-bold text-white">ChessMaster</span>
           </Link>
         </div>
 
