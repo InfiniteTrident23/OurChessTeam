@@ -3,14 +3,14 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, Users, Clock, LogOut, X } from "lucide-react"
+import { Plus, Users, Clock, LogOut, X, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-// Add proper typing for rooms
+// Updated Room interface without isLive
 interface Room {
   id: string
   name: string
@@ -19,51 +19,15 @@ interface Room {
   timeControl: string
   status: string
   host: string
-  isLive?: boolean // Make this optional
 }
 
-// Update the mock rooms to include isLive property
-const mockRooms: Room[] = [
-  {
-    id: "room-1",
-    name: "Beginner's Paradise",
-    players: 1,
-    maxPlayers: 2,
-    timeControl: "10+5",
-    status: "waiting",
-    host: "ChessLover123",
-    isLive: false, // Add this
-  },
-  {
-    id: "room-2",
-    name: "Rapid Fire Challenge",
-    players: 2,
-    maxPlayers: 2,
-    timeControl: "5+3",
-    status: "playing",
-    host: "GrandMaster99",
-    isLive: false, // Add this
-  },
-  {
-    id: "room-3",
-    name: "Casual Friday",
-    players: 1,
-    maxPlayers: 2,
-    timeControl: "15+10",
-    status: "waiting",
-    host: "PawnPusher",
-    isLive: false, // Add this
-  },
-]
-
 const DashboardPage = () => {
-  // Update the rooms state typing
-  const [rooms, setRooms] = useState<Room[]>(mockRooms)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [newRoomName, setNewRoomName] = useState("")
   const [timeControl, setTimeControl] = useState("10+5")
   const [userEmail, setUserEmail] = useState("")
   const [activeGames, setActiveGames] = useState<any[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
 
@@ -92,8 +56,10 @@ const DashboardPage = () => {
         const response = await fetch(`${socketUrl}/games`)
         if (response.ok) {
           const games = await response.json()
-          setActiveGames(games)
-          console.log("Active games:", games)
+          // Filter out finished games
+          const activeOnlyGames = games.filter((game: any) => game.status !== "finished")
+          setActiveGames(activeOnlyGames)
+          console.log("Active games:", activeOnlyGames)
         }
       } catch (error) {
         console.log("Could not fetch active games:", error)
@@ -103,8 +69,8 @@ const DashboardPage = () => {
 
     if (mounted) {
       fetchActiveGames()
-      // Refresh every 10 seconds
-      const interval = setInterval(fetchActiveGames, 10000)
+      // Refresh every 5 seconds to get real-time updates
+      const interval = setInterval(fetchActiveGames, 5000)
       return () => clearInterval(interval)
     }
   }, [mounted])
@@ -120,7 +86,7 @@ const DashboardPage = () => {
       // Generate a unique room ID
       const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
-      // For now, just navigate to the room - the Socket.IO server will create the game
+      // Navigate to the room - the Socket.IO server will create the game
       setNewRoomName("")
       setIsCreateDialogOpen(false)
       router.push(`/game/${roomId}`)
@@ -131,25 +97,29 @@ const DashboardPage = () => {
     router.push(`/game/${roomId}`)
   }
 
-  // Update the room mapping to ensure consistent typing
-  const allRooms: Room[] = [
-    ...rooms,
-    ...activeGames.map(
-      (game): Room => ({
-        id: game.roomId,
-        name: `Game ${game.roomId.slice(-8)}`,
-        players: (game.whitePlayer ? 1 : 0) + (game.blackPlayer ? 1 : 0),
-        maxPlayers: 2,
-        timeControl: "10+5",
-        status: game.status,
-        host: game.whitePlayer?.split("@")[0] || "Unknown",
-        isLive: true, // This will always be true for active games
-      }),
-    ),
-  ]
+  // Convert active games to Room format (no mock data)
+  const allRooms: Room[] = activeGames.map(
+    (game): Room => ({
+      id: game.roomId,
+      name: `Game ${game.roomId.slice(-8)}`,
+      players: (game.whitePlayer ? 1 : 0) + (game.blackPlayer ? 1 : 0),
+      maxPlayers: 2,
+      timeControl: "10+5",
+      status: game.status,
+      host: game.whitePlayer?.split("@")[0] || "Unknown",
+    }),
+  )
 
-  // Remove duplicates based on room ID
-  const uniqueRooms = allRooms.filter((room, index, self) => index === self.findIndex((r) => r.id === room.id))
+  // Filter rooms based on search query
+  const filteredRooms = allRooms.filter((room) => {
+    const query = searchQuery.toLowerCase()
+    return (
+      room.name.toLowerCase().includes(query) ||
+      room.host.toLowerCase().includes(query) ||
+      room.id.toLowerCase().includes(query) ||
+      room.status.toLowerCase().includes(query)
+    )
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -186,8 +156,8 @@ const DashboardPage = () => {
             <h2 className="text-3xl font-bold text-white mb-2">Game Rooms</h2>
             <p className="text-slate-300">Create a new room or join an existing one to start playing</p>
             {activeGames.length > 0 && (
-              <p className="text-amber-400 text-sm mt-1">
-                🔴 {activeGames.length} live game{activeGames.length !== 1 ? "s" : ""} active
+              <p className="text-green-400 text-sm mt-1">
+                {activeGames.length} active game{activeGames.length !== 1 ? "s" : ""} available
               </p>
             )}
           </div>
@@ -200,6 +170,26 @@ const DashboardPage = () => {
             Create Room
           </Button>
         </div>
+
+        {/* Search Bar */}
+        {allRooms.length > 0 && (
+          <div className="mb-6">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <Input
+                placeholder="Search rooms by name, host, or room ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 bg-slate-800 border-slate-600 text-white placeholder:text-slate-400"
+              />
+            </div>
+            {searchQuery && (
+              <p className="text-slate-400 text-sm mt-2">
+                {filteredRooms.length} room{filteredRooms.length !== 1 ? "s" : ""} found
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Create Room Modal */}
         {isCreateDialogOpen && (
@@ -257,14 +247,11 @@ const DashboardPage = () => {
 
         {/* Rooms Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {uniqueRooms.map((room) => (
-            <Card key={room.id} className="bg-slate-800 border-slate-700">
+          {filteredRooms.map((room) => (
+            <Card key={room.id} className="bg-slate-800 border-slate-700 hover:border-slate-600 transition-colors">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-white flex items-center">
-                    {room.name}
-                    {room.isLive && <span className="ml-2 text-red-500 text-sm">🔴 LIVE</span>}
-                  </CardTitle>
+                  <CardTitle className="text-white">{room.name}</CardTitle>
                   <Badge
                     variant={room.status === "waiting" ? "default" : "secondary"}
                     className={
@@ -278,10 +265,7 @@ const DashboardPage = () => {
                     {room.status}
                   </Badge>
                 </div>
-                <CardDescription className="text-slate-300">
-                  Host: {room.host}
-                  {room.isLive && <span className="ml-2 text-amber-400">(Live Game)</span>}
-                </CardDescription>
+                <CardDescription className="text-slate-300">Host: {room.host}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between text-slate-300">
@@ -296,10 +280,10 @@ const DashboardPage = () => {
                     <span>{room.timeControl}</span>
                   </div>
                 </div>
+                <div className="text-slate-400 text-xs">Room ID: {room.id.slice(-12)}</div>
                 <Button
                   onClick={() => handleJoinRoom(room.id)}
                   className="w-full"
-                  disabled={room.status === "finished"}
                   variant={room.status === "waiting" ? "default" : "secondary"}
                 >
                   {room.status === "waiting" ? "Join Room" : room.status === "playing" ? "Spectate" : "View Game"}
@@ -309,12 +293,13 @@ const DashboardPage = () => {
           ))}
         </div>
 
-        {uniqueRooms.length === 0 && (
+        {/* Empty State */}
+        {allRooms.length === 0 && (
           <div className="text-center py-12">
             <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
               <Users className="w-8 h-8 text-slate-400" />
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">No rooms available</h3>
+            <h3 className="text-xl font-semibold text-white mb-2">No active rooms</h3>
             <p className="text-slate-300 mb-4">Be the first to create a room and start playing!</p>
             <Button
               onClick={() => setIsCreateDialogOpen(true)}
@@ -322,6 +307,32 @@ const DashboardPage = () => {
             >
               Create First Room
             </Button>
+          </div>
+        )}
+
+        {/* No Search Results */}
+        {allRooms.length > 0 && filteredRooms.length === 0 && searchQuery && (
+          <div className="text-center py-12">
+            <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Search className="w-8 h-8 text-slate-400" />
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-2">No rooms found</h3>
+            <p className="text-slate-300 mb-4">Try searching with different keywords or create a new room</p>
+            <div className="flex justify-center space-x-4">
+              <Button
+                onClick={() => setSearchQuery("")}
+                variant="outline"
+                className="bg-transparent border-slate-600 text-white hover:bg-slate-800"
+              >
+                Clear Search
+              </Button>
+              <Button
+                onClick={() => setIsCreateDialogOpen(true)}
+                className="bg-amber-600 hover:bg-amber-700 text-slate-900"
+              >
+                Create Room
+              </Button>
+            </div>
           </div>
         )}
 
