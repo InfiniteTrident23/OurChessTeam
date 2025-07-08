@@ -23,6 +23,44 @@ const activeGames = new Map()
 const activeRooms = new Map()
 const playerSockets = new Map() // Track player socket connections
 
+// Function to update user trophies via API
+async function updateUserTrophies(whitePlayerEmail, blackPlayerEmail, winner, reason) {
+  try {
+    console.log("=== UPDATING TROPHIES VIA API ===")
+    console.log("White player:", whitePlayerEmail)
+    console.log("Black player:", blackPlayerEmail)
+    console.log("Winner:", winner)
+    console.log("Reason:", reason)
+
+    const clientUrl = process.env.CLIENT_URL || "http://localhost:3000"
+    const response = await fetch(`${clientUrl}/api/update-trophies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        whitePlayerEmail,
+        blackPlayerEmail,
+        winner,
+        reason,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error("Trophy update API error:", errorData)
+      throw new Error(`API error: ${response.status} - ${errorData.error}`)
+    }
+
+    const result = await response.json()
+    console.log("Trophy update successful:", result)
+    return result
+  } catch (error) {
+    console.error("Error updating user trophies:", error)
+    throw error
+  }
+}
+
 // Game state management
 class ChessGame {
   constructor(roomId, whitePlayer) {
@@ -111,7 +149,13 @@ class ChessGame {
     return true
   }
 
-  endGame(winner, reason) {
+  async endGame(winner, reason) {
+    console.log("=== ENDING GAME ===")
+    console.log("Winner:", winner)
+    console.log("Reason:", reason)
+    console.log("White player:", this.whitePlayer)
+    console.log("Black player:", this.blackPlayer)
+
     this.status = "finished"
     this.winner = winner
     this.endReason = reason
@@ -120,6 +164,20 @@ class ChessGame {
     // Clear any pending draw offers
     this.drawOffers.clear()
     this.drawOfferedBy = null
+
+    // Update player trophies if both players exist
+    if (this.whitePlayer && this.blackPlayer) {
+      try {
+        console.log("Updating trophies for completed game...")
+        await updateUserTrophies(this.whitePlayer, this.blackPlayer, winner, reason)
+        console.log("Trophy update completed successfully")
+      } catch (error) {
+        console.error("Failed to update trophies:", error)
+        // Don't throw error - game should still end even if trophy update fails
+      }
+    } else {
+      console.log("Skipping trophy update - missing player(s)")
+    }
   }
 
   getGameState() {
@@ -332,9 +390,9 @@ io.on("connection", (socket) => {
       const playerColor = game.whitePlayer === userEmail ? "white" : "black"
       const winner = playerColor === "white" ? "black" : "white"
 
-      game.endGame(winner, "resignation")
+      console.log(`Game resignation in room ${roomId} by ${userEmail} (${playerColor}), winner: ${winner}`)
 
-      console.log(`Game resigned in room ${roomId} by ${userEmail}`)
+      await game.endGame(winner, "resignation")
 
       // Notify all players
       io.to(roomId).emit("game-ended", {
