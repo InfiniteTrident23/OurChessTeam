@@ -30,7 +30,7 @@ export default function GamePage() {
     const email = localStorage.getItem("userEmail")
 
     if (!isLoggedIn) {
-      router.push("/login")
+      router.push("/Login")
       return
     }
 
@@ -136,6 +136,13 @@ export default function GamePage() {
   ]
 
   const handleMakeMove = async (from: string, to: string, newBoardState: string, moveData: any) => {
+    // Handle special game-end moves (checkmate/stalemate)
+    if (from === "game-end") {
+      console.log("Game ending detected:", to, moveData)
+      return await makeMove(roomId, from, to, newBoardState, moveData)
+    }
+
+    // Handle normal moves
     return await makeMove(roomId, from, to, newBoardState, moveData)
   }
 
@@ -273,6 +280,7 @@ export default function GamePage() {
                   userColor={userColor}
                   isUserTurn={isUserTurn}
                   disabled={gameState.status !== "playing"}
+                  gameState={gameState}
                   onMove={handleMakeMove}
                 />
               </CardContent>

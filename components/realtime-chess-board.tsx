@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { Chess } from "chess.js"
 
 type PieceType = "king" | "queen" | "rook" | "bishop" | "knight" | "pawn"
 type PieceColor = "white" | "black"
@@ -16,6 +17,7 @@ interface RealtimeChessBoardProps {
   userColor: "white" | "black" | null
   isUserTurn: boolean
   disabled?: boolean
+  gameState?: any
   onMove: (from: string, to: string, newBoardState: string, moveData: any) => Promise<boolean>
 }
 
@@ -48,79 +50,25 @@ function fenToBoard(fen: string): (Piece | null)[][] {
     for (let i = 0; i < rank.length; i++) {
       const char = rank[i]
       if (char >= "1" && char <= "8") {
-        // Empty squares
         const emptyCount = Number.parseInt(char)
-        for (let j = 0; j < emptyCount; j++) {
-          row.push(null)
-        }
+        for (let j = 0; j < emptyCount; j++) row.push(null)
       } else {
-        // Piece
         const color: PieceColor = char === char.toUpperCase() ? "white" : "black"
         const pieceChar = char.toLowerCase()
-        let type: PieceType
-
-        switch (pieceChar) {
-          case "k":
-            type = "king"
-            break
-          case "q":
-            type = "queen"
-            break
-          case "r":
-            type = "rook"
-            break
-          case "b":
-            type = "bishop"
-            break
-          case "n":
-            type = "knight"
-            break
-          case "p":
-            type = "pawn"
-            break
-          default:
-            continue
+        const typeMap: Record<string, PieceType> = {
+          k: "king",
+          q: "queen",
+          r: "rook",
+          b: "bishop",
+          n: "knight",
+          p: "pawn",
         }
-
-        row.push({ type, color })
+        const type = typeMap[pieceChar]
+        if (type) row.push({ type, color })
       }
     }
     return row
   })
-}
-
-// Convert board array to FEN
-function boardToFen(board: (Piece | null)[][], currentTurn: "white" | "black"): string {
-  const ranks = board.map((rank) => {
-    let rankStr = ""
-    let emptyCount = 0
-
-    for (const piece of rank) {
-      if (piece === null) {
-        emptyCount++
-      } else {
-        if (emptyCount > 0) {
-          rankStr += emptyCount.toString()
-          emptyCount = 0
-        }
-
-        let pieceChar = piece.type === "knight" ? "n" : piece.type[0]
-        if (piece.color === "white") {
-          pieceChar = pieceChar.toUpperCase()
-        }
-        rankStr += pieceChar
-      }
-    }
-
-    if (emptyCount > 0) {
-      rankStr += emptyCount.toString()
-    }
-
-    return rankStr
-  })
-
-  const turn = currentTurn === "white" ? "w" : "b"
-  return `${ranks.join("/")} ${turn} KQkq - 0 1`
 }
 
 // Convert position to algebraic notation
@@ -136,83 +84,175 @@ export default function RealtimeChessBoard({
   userColor,
   isUserTurn,
   disabled = false,
+  gameState,
   onMove,
 }: RealtimeChessBoardProps) {
   const [board, setBoard] = useState<(Piece | null)[][]>([])
   const [selectedSquare, setSelectedSquare] = useState<[number, number] | null>(null)
+  const [legalMoves, setLegalMoves] = useState<string[]>([])
+  const [status, setStatus] = useState<string>("")
 
-  // Update board when boardState changes
+  // Track if we've already sent a game-end signal for this board state
+  const gameEndSentRef = useRef<string | null>(null)
+  const lastBoardStateRef = useRef<string>("")
+
+  // Create internal Chess instance for validation
   useEffect(() => {
+    const chess = new Chess()
+    chess.load(boardState)
+
+    // Only check for game end if this is a new board state and game isn't already finished
+    const isNewBoardState = lastBoardStateRef.current !== boardState
+    const gameNotFinished = gameState?.status !== "finished"
+    const notAlreadySent = gameEndSentRef.current !== boardState
+
+    if (isNewBoardState && gameNotFinished && notAlreadySent) {
+      if (chess.isCheckmate()) {
+        setStatus("Checkmate!")
+        const winner = currentTurn === "white" ? "black" : "white"
+        console.log("Checkmate detected! Winner:", winner, "Board state:", boardState)
+
+        // Mark this board state as having sent the game-end signal
+        gameEndSentRef.current = boardState
+
+        if (onMove) {
+          onMove("game-end", "checkmate", boardState, {
+            type: "game-end",
+            reason: "checkmate",
+            winner: winner,
+            timestamp: new Date().toISOString(),
+          })
+            .then((success) => {
+              console.log("Checkmate game end signal sent, success:", success)
+            })
+            .catch((error) => {
+              console.error("Error sending checkmate game end signal:", error)
+              // Reset the flag if there was an error so we can retry
+              gameEndSentRef.current = null
+            })
+        }
+      } else if (chess.isStalemate()) {
+        setStatus("Stalemate!")
+        console.log("Stalemate detected! Board state:", boardState)
+
+        // Mark this board state as having sent the game-end signal
+        gameEndSentRef.current = boardState
+
+        if (onMove) {
+          onMove("game-end", "stalemate", boardState, {
+            type: "game-end",
+            reason: "stalemate",
+            winner: null, // null means draw
+            timestamp: new Date().toISOString(),
+          })
+            .then((success) => {
+              console.log("Stalemate game end signal sent, success:", success)
+            })
+            .catch((error) => {
+              console.error("Error sending stalemate game end signal:", error)
+              // Reset the flag if there was an error so we can retry
+              gameEndSentRef.current = null
+            })
+        }
+      } else if (chess.isCheck()) {
+        setStatus("Check!")
+      } else {
+        setStatus("")
+      }
+    } else if (gameState?.status === "finished") {
+      // Game is already finished, just update status display
+      if (chess.isCheckmate()) {
+        setStatus("Checkmate!")
+      } else if (chess.isStalemate()) {
+        setStatus("Stalemate!")
+      }
+    }
+
+    // Update the last board state reference
+    lastBoardStateRef.current = boardState
     setBoard(fenToBoard(boardState))
-  }, [boardState])
+  }, [boardState, currentTurn, onMove, gameState?.status])
+
+  // Reset the game-end flag when game status changes to finished
+  useEffect(() => {
+    if (gameState?.status === "finished") {
+      console.log("Game finished, resetting game-end flag")
+      gameEndSentRef.current = null
+    }
+  }, [gameState?.status])
 
   const handleSquareClick = async (row: number, col: number) => {
-    if (disabled || !isUserTurn) return
+    if (disabled || !isUserTurn || gameState?.status === "finished") return
+
+    const clickedPos = positionToAlgebraic(row, col)
+    const chess = new Chess()
+    chess.load(boardState)
 
     if (selectedSquare) {
-      const [selectedRow, selectedCol] = selectedSquare
-      const selectedPiece = board[selectedRow][selectedCol]
+      const [fromRow, fromCol] = selectedSquare
+      const from = positionToAlgebraic(fromRow, fromCol)
 
-      // If clicking on the same square, deselect
-      if (selectedRow === row && selectedCol === col) {
+      if (from === clickedPos) {
         setSelectedSquare(null)
+        setLegalMoves([])
         return
       }
 
-      // If there's a selected piece and it belongs to current player
-      if (selectedPiece && selectedPiece.color === userColor) {
-        const targetPiece = board[row][col]
+      const move = chess.move({ from, to: clickedPos, promotion: "q" })
 
-        // Can't capture own piece
-        if (targetPiece && targetPiece.color === selectedPiece.color) {
-          setSelectedSquare([row, col])
-          return
-        }
-
-        // Make the move
-        const newBoard = board.map((r) => [...r])
-        newBoard[row][col] = selectedPiece
-        newBoard[selectedRow][selectedCol] = null
-
-        const from = positionToAlgebraic(selectedRow, selectedCol)
-        const to = positionToAlgebraic(row, col)
-        const newBoardState = boardToFen(newBoard, currentTurn === "white" ? "black" : "white")
-
+      if (move) {
+        const newBoardState = chess.fen()
         const moveData = {
           from,
-          to,
-          piece: selectedPiece.type,
-          captured: targetPiece?.type || null,
+          to: clickedPos,
+          piece: move.piece,
+          captured: move.captured || null,
           timestamp: new Date().toISOString(),
         }
 
-        const success = await onMove(from, to, newBoardState, moveData)
-
+        const success = await onMove(from, clickedPos, newBoardState, moveData)
         if (success) {
           setSelectedSquare(null)
+          setLegalMoves([])
+        }
+      } else {
+        // Not legal
+        const piece = board[row][col]
+        if (piece && piece.color === userColor) {
+          setSelectedSquare([row, col])
+          const newFrom = clickedPos
+          const moves = chess.moves({ square: newFrom, verbose: true })
+          setLegalMoves(moves.map((m) => m.to))
+        } else {
+          setSelectedSquare(null)
+          setLegalMoves([])
         }
       }
     } else {
-      // Select a piece if it belongs to current player
       const piece = board[row][col]
       if (piece && piece.color === userColor) {
         setSelectedSquare([row, col])
+        const from = clickedPos
+        const moves = chess.moves({ square: from, verbose: true })
+        setLegalMoves(moves.map((m) => m.to))
       }
     }
   }
 
-  const isSquareSelected = (row: number, col: number) => {
-    return selectedSquare && selectedSquare[0] === row && selectedSquare[1] === col
-  }
+  const isSquareSelected = (row: number, col: number) =>
+    selectedSquare && selectedSquare[0] === row && selectedSquare[1] === col
 
-  const isSquareLight = (row: number, col: number) => {
-    return (row + col) % 2 === 0
-  }
+  const isLegalMoveSquare = (row: number, col: number) => legalMoves.includes(positionToAlgebraic(row, col))
+
+  const isSquareLight = (row: number, col: number) => (row + col) % 2 === 0
 
   const getStatusMessage = () => {
-    if (disabled) return "Waiting for opponent to join..."
-    if (!userColor) return "Spectating game"
-    if (isUserTurn) return "Your turn"
+    if (disabled) return "Waiting for opponent..."
+    if (!userColor) return "Spectating"
+    if (status === "Checkmate!") return `Checkmate! ${currentTurn === "white" ? "Black" : "White"} wins!`
+    if (status === "Stalemate!") return "Stalemate! Game is a draw!"
+    if (status) return status
+    if (isUserTurn) return "Your move"
     return `${currentTurn === "white" ? "White" : "Black"} to move`
   }
 
@@ -221,34 +261,39 @@ export default function RealtimeChessBoard({
       <div className="text-white text-lg font-semibold">{getStatusMessage()}</div>
 
       <div className="grid grid-cols-8 gap-0 border-2 border-amber-600 bg-amber-600 p-2 rounded-lg">
-        {board.map((row, rowIndex) =>
-          row.map((piece, colIndex) => (
-            <div
-              key={`${rowIndex}-${colIndex}`}
-              className={`
-                w-12 h-12 flex items-center justify-center text-2xl cursor-pointer transition-colors
-                ${isSquareLight(rowIndex, colIndex) ? "bg-amber-100" : "bg-amber-800"}
-                ${isSquareSelected(rowIndex, colIndex) ? "ring-4 ring-blue-400" : ""}
-                ${disabled || !isUserTurn ? "cursor-not-allowed opacity-50" : "hover:bg-opacity-80"}
-              `}
-              onClick={() => handleSquareClick(rowIndex, colIndex)}
-            >
-              {piece && (
-                <span className={piece.color === "white" ? "text-slate-100" : "text-slate-900"}>
-                  {pieceSymbols[piece.color][piece.type]}
-                </span>
-              )}
-            </div>
-          )),
+        {board.map((rowData, row) =>
+          rowData.map((piece, col) => {
+            const isSelected = isSquareSelected(row, col)
+            const isLegal = isLegalMoveSquare(row, col)
+
+            return (
+              <div
+                key={`${row}-${col}`}
+                className={`w-12 h-12 flex items-center justify-center text-2xl cursor-pointer relative
+                  ${isSquareLight(row, col) ? "bg-amber-200" : "bg-amber-700"}
+                  ${isSelected ? "ring-4 ring-blue-400" : ""}
+                  ${disabled || !isUserTurn ? "cursor-not-allowed opacity-50" : "hover:bg-opacity-80"}
+                `}
+                onClick={() => handleSquareClick(row, col)}
+              >
+                {isLegal && <div className="absolute w-3 h-3 rounded-full bg-blue-500 opacity-60 z-10" />}
+                {piece && (
+                  <span className={`z-20 ${piece.color === "white" ? "text-slate-100" : "text-black"}`}>
+                    {pieceSymbols[piece.color][piece.type]}
+                  </span>
+                )}
+              </div>
+            )
+          }),
         )}
       </div>
 
       <div className="text-slate-400 text-sm text-center max-w-md">
         {disabled
-          ? "The game will start once your opponent joins the room."
+          ? "Game will start when opponent joins."
           : userColor
-            ? "Click on your pieces to select them, then click on a destination square to move."
-            : "You are spectating this game."}
+            ? "Click a piece to select it, then click a square to move."
+            : "You're spectating this game."}
       </div>
     </div>
   )
