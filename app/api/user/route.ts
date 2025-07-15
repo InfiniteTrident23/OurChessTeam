@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { hash } from "bcryptjs"
+import Email from "next-auth/providers/email"
 
 // Validate environment variables
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {

@@ -76,6 +76,8 @@ class ChessGame {
     // Draw offer system
     this.drawOffers = new Map() // player -> timestamp
     this.drawOfferedBy = null // which player offered draw
+    // Track if trophies have been updated to prevent duplicates
+    this.trophiesUpdated = false
   }
 
   addPlayer(playerEmail, color) {
@@ -155,6 +157,14 @@ class ChessGame {
     console.log("Reason:", reason)
     console.log("White player:", this.whitePlayer)
     console.log("Black player:", this.blackPlayer)
+    console.log("Game status:", this.status)
+    console.log("Trophies already updated:", this.trophiesUpdated)
+
+    // Prevent duplicate game endings
+    if (this.status === "finished") {
+      console.log("Game already finished, skipping duplicate end game call")
+      return
+    }
 
     this.status = "finished"
     this.winner = winner
@@ -165,18 +175,24 @@ class ChessGame {
     this.drawOffers.clear()
     this.drawOfferedBy = null
 
-    // Update player trophies if both players exist
-    if (this.whitePlayer && this.blackPlayer) {
+    // Update player trophies if both players exist and not already updated
+    if (this.whitePlayer && this.blackPlayer && !this.trophiesUpdated) {
       try {
         console.log("Updating trophies for completed game...")
+        this.trophiesUpdated = true // Mark as updating to prevent duplicates
         await updateUserTrophies(this.whitePlayer, this.blackPlayer, winner, reason)
         console.log("Trophy update completed successfully")
       } catch (error) {
         console.error("Failed to update trophies:", error)
+        this.trophiesUpdated = false // Reset flag if update failed
         // Don't throw error - game should still end even if trophy update fails
       }
     } else {
-      console.log("Skipping trophy update - missing player(s)")
+      if (!this.whitePlayer || !this.blackPlayer) {
+        console.log("Skipping trophy update - missing player(s)")
+      } else if (this.trophiesUpdated) {
+        console.log("Skipping trophy update - already updated")
+      }
     }
   }
 
@@ -262,7 +278,38 @@ io.on("connection", (socket) => {
         return
       }
 
-      // Validate it's the player's turn
+      // Check if this is a special game-end move (checkmate/stalemate)
+      if (from === "game-end") {
+        console.log(`Game ending detected in room ${roomId}: ${to} by ${userEmail}`)
+        console.log(`Current game status: ${game.status}`)
+
+        // Prevent duplicate game endings
+        if (game.status === "finished") {
+          console.log("Game already finished, ignoring duplicate game-end signal")
+          return
+        }
+
+        if (to === "checkmate") {
+          const winner = moveData.winner
+          console.log(`Ending game by checkmate, winner: ${winner}`)
+          await game.endGame(winner, "checkmate")
+        } else if (to === "stalemate") {
+          console.log(`Ending game by stalemate (draw)`)
+          await game.endGame(null, "stalemate")
+        }
+
+        // Broadcast game end to all players
+        io.to(roomId).emit("game-ended", {
+          winner: game.winner,
+          reason: game.endReason,
+          gameState: game.getGameState(),
+        })
+
+        console.log(`Game ${roomId} ended successfully. Winner: ${game.winner}, Reason: ${game.endReason}`)
+        return
+      }
+
+      // Validate it's the player's turn for normal moves
       const playerColor = game.whitePlayer === userEmail ? "white" : "black"
       if (game.currentTurn !== playerColor) {
         socket.emit("error", { message: "Not your turn" })
