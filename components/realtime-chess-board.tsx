@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Chess } from "chess.js"
+import { Chess, type Square } from "chess.js"
 
 type PieceType = "king" | "queen" | "rook" | "bishop" | "knight" | "pawn"
 type PieceColor = "white" | "black"
@@ -72,10 +72,10 @@ function fenToBoard(fen: string): (Piece | null)[][] {
 }
 
 // Convert position to algebraic notation
-function positionToAlgebraic(row: number, col: number): string {
+function positionToAlgebraic(row: number, col: number): Square {
   const files = "abcdefgh"
   const ranks = "87654321"
-  return files[col] + ranks[row]
+  return (files[col] + ranks[row]) as Square
 }
 
 export default function RealtimeChessBoard({
