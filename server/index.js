@@ -55,10 +55,8 @@ async function updateUserTrophies(whitePlayerEmail, blackPlayerEmail, winner, re
     console.log("Winner:", winner)
     console.log("Reason:", reason)
 
-
     const clientUrl = process.env.CLIENT_URL || "http://localhost:3000"
     const response = await fetch(`${clientUrl}/api/update-trophies`, {
-
       method: "POST",
       headers: {
         "Content-Type": "application/json",
