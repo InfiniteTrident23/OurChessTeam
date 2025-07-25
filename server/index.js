@@ -21,7 +21,7 @@ const io = new Server(httpServer, {
     origin: [
       CLIENT_URL,
       "http://localhost:3000", // For local development
-      "https://your-app-name.onrender.com", // Replace with your actual Render URL
+      "https://ourchessteam-nextjs-app.onrender.com", // Replace with your actual Render URL
     ],
     methods: ["GET", "POST"],
     credentials: true,
