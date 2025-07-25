@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -32,25 +33,47 @@ export default function RegisterPage() {
       return
     }
 
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long")
+      setIsLoading(false)
+      return
+    }
+
     try {
-      const res = await fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password }),
-      });
+      const response = await fetch("/api/user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          username,
+        }),
+      })
 
-      const data = await res.json();
+      const data = await response.json()
 
-      if (!res.ok) {
-        throw new Error(data.message || 'Registration failed');
+      if (response.ok) {
+        setSuccess("Account created successfully! You start with 200 trophies.")
+        // Store user data in localStorage
+        localStorage.setItem("isLoggedIn", "true")
+        localStorage.setItem("userEmail", email)
+        localStorage.setItem("userName", username)
+        localStorage.setItem("userTrophies", data.user.trophies.toString())
+
+        // Redirect to dashboard after a short delay
+        setTimeout(() => {
+          router.push("/Dashboard")
+        }, 1500)
+      } else {
+        setError(data.message || "Registration failed")
       }
-
-      setSuccess(data.message || 'Registration successful!');
-      setTimeout(() => router.push("/"), 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+    } catch (error) {
+      console.error("Registration error:", error)
+      setError("Something went wrong. Please try again.")
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
   }
 
@@ -63,14 +86,14 @@ export default function RegisterPage() {
             <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center">
               <span className="text-slate-900 font-bold text-xl">♔</span>
             </div>
-            <span className="text-2xl font-bold text-white">OurChessTeam</span>
+            <span className="text-2xl font-bold text-white">ChessMaster</span>
           </Link>
         </div>
 
         <Card className="bg-slate-800 border-slate-700">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl text-white">Create Account</CardTitle>
-            <CardDescription className="text-slate-300">Join OurChessTeam and start playing today</CardDescription>
+            <CardDescription className="text-slate-300">Join ChessMaster and start with 200 trophies!</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -79,7 +102,7 @@ export default function RegisterPage() {
                   <AlertDescription className="text-red-200">{error}</AlertDescription>
                 </Alert>
               )}
-              
+
               {success && (
                 <Alert className="bg-green-900/50 border-green-700">
                   <AlertDescription className="text-green-200">{success}</AlertDescription>
@@ -98,6 +121,8 @@ export default function RegisterPage() {
                   onChange={(e) => setUsername(e.target.value)}
                   className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
                   required
+                  minLength={3}
+                  maxLength={20}
                 />
               </div>
 
@@ -123,11 +148,12 @@ export default function RegisterPage() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Create a password"
+                  placeholder="Create a password (min 6 characters)"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
                   required
+                  minLength={6}
                 />
               </div>
 
@@ -143,6 +169,7 @@ export default function RegisterPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
                   required
+                  minLength={6}
                 />
               </div>
 
@@ -162,6 +189,17 @@ export default function RegisterPage() {
                   Sign in
                 </Link>
               </p>
+            </div>
+
+            {/* Trophy System Info */}
+            <div className="mt-6 p-4 bg-slate-900/50 rounded-lg">
+              <h4 className="text-amber-400 font-semibold text-sm mb-2">🏆 Trophy System</h4>
+              <div className="text-slate-300 text-xs space-y-1">
+                <div>• Start with 200 trophies</div>
+                <div>• Win games: +100 trophies</div>
+                <div>• Lose games: -50 trophies</div>
+                <div>• Climb the leaderboard!</div>
+              </div>
             </div>
           </CardContent>
         </Card>
