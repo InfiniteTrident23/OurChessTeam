@@ -6,22 +6,82 @@ const cors = require("cors")
 const app = express()
 const httpServer = createServer(app)
 
+// Get environment variables
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000"
+const PORT = process.env.PORT || 3001
+
+console.log("=== SERVER CONFIGURATION ===")
+console.log("Client URL:", CLIENT_URL)
+console.log("Port:", PORT)
+console.log("Environment:", process.env.NODE_ENV || "development")
+
 // Configure CORS for Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: [
+      CLIENT_URL,
+      "http://localhost:3000", // For local development
+      "https://your-app-name.onrender.com", // Replace with your actual Render URL
+    ],
     methods: ["GET", "POST"],
     credentials: true,
   },
 })
 
-app.use(cors())
+app.use(
+  cors({
+    origin: [
+      CLIENT_URL,
+      "http://localhost:3000",
+      "https://your-app-name.onrender.com", // Replace with your actual Render URL
+    ],
+    credentials: true,
+  }),
+)
+
 app.use(express.json())
 
 // Store active games and rooms in memory
 const activeGames = new Map()
 const activeRooms = new Map()
 const playerSockets = new Map() // Track player socket connections
+
+// Function to update user trophies via API
+async function updateUserTrophies(whitePlayerEmail, blackPlayerEmail, winner, reason) {
+  try {
+    console.log("=== UPDATING TROPHIES VIA API ===")
+    console.log("White player:", whitePlayerEmail)
+    console.log("Black player:", blackPlayerEmail)
+    console.log("Winner:", winner)
+    console.log("Reason:", reason)
+
+    const response = await fetch(`${CLIENT_URL}/api/update-trophies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        whitePlayerEmail,
+        blackPlayerEmail,
+        winner,
+        reason,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error("Trophy update API error:", errorData)
+      throw new Error(`API error: ${response.status} - ${errorData.error}`)
+    }
+
+    const result = await response.json()
+    console.log("Trophy update successful:", result)
+    return result
+  } catch (error) {
+    console.error("Error updating user trophies:", error)
+    throw error
+  }
+}
 
 // Game state management
 class ChessGame {
@@ -38,6 +98,8 @@ class ChessGame {
     // Draw offer system
     this.drawOffers = new Map() // player -> timestamp
     this.drawOfferedBy = null // which player offered draw
+    // Track if trophies have been updated to prevent duplicates
+    this.trophiesUpdated = false
   }
 
   addPlayer(playerEmail, color) {
@@ -111,7 +173,21 @@ class ChessGame {
     return true
   }
 
-  endGame(winner, reason) {
+  async endGame(winner, reason) {
+    console.log("=== ENDING GAME ===")
+    console.log("Winner:", winner)
+    console.log("Reason:", reason)
+    console.log("White player:", this.whitePlayer)
+    console.log("Black player:", this.blackPlayer)
+    console.log("Game status:", this.status)
+    console.log("Trophies already updated:", this.trophiesUpdated)
+
+    // Prevent duplicate game endings
+    if (this.status === "finished") {
+      console.log("Game already finished, skipping duplicate end game call")
+      return
+    }
+
     this.status = "finished"
     this.winner = winner
     this.endReason = reason
@@ -120,6 +196,26 @@ class ChessGame {
     // Clear any pending draw offers
     this.drawOffers.clear()
     this.drawOfferedBy = null
+
+    // Update player trophies if both players exist and not already updated
+    if (this.whitePlayer && this.blackPlayer && !this.trophiesUpdated) {
+      try {
+        console.log("Updating trophies for completed game...")
+        this.trophiesUpdated = true // Mark as updating to prevent duplicates
+        await updateUserTrophies(this.whitePlayer, this.blackPlayer, winner, reason)
+        console.log("Trophy update completed successfully")
+      } catch (error) {
+        console.error("Failed to update trophies:", error)
+        this.trophiesUpdated = false // Reset flag if update failed
+        // Don't throw error - game should still end even if trophy update fails
+      }
+    } else {
+      if (!this.whitePlayer || !this.blackPlayer) {
+        console.log("Skipping trophy update - missing player(s)")
+      } else if (this.trophiesUpdated) {
+        console.log("Skipping trophy update - already updated")
+      }
+    }
   }
 
   getGameState() {
@@ -204,7 +300,38 @@ io.on("connection", (socket) => {
         return
       }
 
-      // Validate it's the player's turn
+      // Check if this is a special game-end move (checkmate/stalemate)
+      if (from === "game-end") {
+        console.log(`Game ending detected in room ${roomId}: ${to} by ${userEmail}`)
+        console.log(`Current game status: ${game.status}`)
+
+        // Prevent duplicate game endings
+        if (game.status === "finished") {
+          console.log("Game already finished, ignoring duplicate game-end signal")
+          return
+        }
+
+        if (to === "checkmate") {
+          const winner = moveData.winner
+          console.log(`Ending game by checkmate, winner: ${winner}`)
+          await game.endGame(winner, "checkmate")
+        } else if (to === "stalemate") {
+          console.log(`Ending game by stalemate (draw)`)
+          await game.endGame(null, "stalemate")
+        }
+
+        // Broadcast game end to all players
+        io.to(roomId).emit("game-ended", {
+          winner: game.winner,
+          reason: game.endReason,
+          gameState: game.getGameState(),
+        })
+
+        console.log(`Game ${roomId} ended successfully. Winner: ${game.winner}, Reason: ${game.endReason}`)
+        return
+      }
+
+      // Validate it's the player's turn for normal moves
       const playerColor = game.whitePlayer === userEmail ? "white" : "black"
       if (game.currentTurn !== playerColor) {
         socket.emit("error", { message: "Not your turn" })
@@ -332,9 +459,9 @@ io.on("connection", (socket) => {
       const playerColor = game.whitePlayer === userEmail ? "white" : "black"
       const winner = playerColor === "white" ? "black" : "white"
 
-      game.endGame(winner, "resignation")
+      console.log(`Game resignation in room ${roomId} by ${userEmail} (${playerColor}), winner: ${winner}`)
 
-      console.log(`Game resigned in room ${roomId} by ${userEmail}`)
+      await game.endGame(winner, "resignation")
 
       // Notify all players
       io.to(roomId).emit("game-ended", {
@@ -423,6 +550,8 @@ app.get("/health", (req, res) => {
     activeGames: activeGames.size,
     connectedPlayers: playerSockets.size,
     timestamp: new Date(),
+    environment: process.env.NODE_ENV || "development",
+    clientUrl: CLIENT_URL,
   })
 })
 
@@ -432,11 +561,19 @@ app.get("/games", (req, res) => {
   res.json(games)
 })
 
-const PORT = process.env.PORT || 3001
+// Root endpoint
+app.get("/", (req, res) => {
+  res.json({
+    message: "Chess Socket.IO Server",
+    status: "running",
+    timestamp: new Date(),
+  })
+})
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Socket.IO server running on port ${PORT}`)
-  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || "http://localhost:3000"}`)
+  console.log(`🌐 Client URL: ${CLIENT_URL}`)
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`)
 })
 
 // Graceful shutdown
