@@ -80,23 +80,7 @@ export default function LoginPage() {
           <p className="text-slate-400 mt-2">Sign in to your account</p>
         </div>
 
-        {/* Demo Credentials Info */}
-        <Card className="bg-slate-800 border-slate-700">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Info className="h-4 w-4 text-amber-400" />
-              <CardTitle className="text-sm text-amber-400">Demo Credentials</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="text-slate-300">
-              <strong className="text-white">Admin:</strong> admin@chessmaster.com / admin123
-            </div>
-            <div className="text-slate-300">
-              <strong className="text-white">User:</strong> Use your registered account
-            </div>
-          </CardContent>
-        </Card>
+        
 
         {/* Login Form */}
         <Card className="bg-slate-800 border-slate-700">
