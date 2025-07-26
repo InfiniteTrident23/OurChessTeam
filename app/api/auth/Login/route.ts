@@ -90,7 +90,80 @@ export async function POST(req: Request) {
       )
     }
 
-    console.log("Validation passed, searching for user...")
+    console.log("Validation passed, checking for admin user first...")
+
+    // Check if this is an admin user first
+    const { data: adminUser, error: adminFetchError } = await supabaseAdmin
+      .from("admin_users")
+      .select("*")
+      .eq("email", email.toLowerCase())
+      .eq("is_active", true)
+      .maybeSingle()
+
+    if (adminFetchError) {
+      console.error("Error fetching admin user:", adminFetchError)
+    }
+
+    if (adminUser) {
+      console.log("Admin user found:", {
+        id: adminUser.id,
+        email: adminUser.email,
+        username: adminUser.username,
+        role: adminUser.role,
+      })
+
+      // Verify admin password
+      let passwordMatch = false
+      try {
+        passwordMatch = await compare(password, adminUser.password)
+        console.log("Admin password verification result:", passwordMatch)
+      } catch (compareError) {
+        console.error("Admin password comparison error:", compareError)
+        return NextResponse.json(
+          {
+            message: "Password verification failed",
+            error: compareError instanceof Error ? compareError.message : "Unknown error",
+          },
+          { status: 500 },
+        )
+      }
+
+      if (passwordMatch) {
+        // Update admin last login
+        try {
+          await supabaseAdmin.rpc("update_admin_last_login", {
+            admin_email: email.toLowerCase(),
+          })
+        } catch (updateError) {
+          console.error("Failed to update admin last login:", updateError)
+        }
+
+        console.log("Admin login successful for:", adminUser.email)
+
+        // Return admin user data in the format expected by the frontend
+        const adminData = {
+          id: adminUser.id,
+          email: adminUser.email,
+          username: adminUser.username,
+          role: adminUser.role,
+          isAdmin: true,
+          trophies: 1000, // Default admin trophies
+          lastLogin: adminUser.last_login,
+          createdAt: adminUser.created_at,
+        }
+
+        return NextResponse.json(
+          {
+            user: adminData,
+            message: "Admin login successful",
+            redirectTo: "/admin",
+          },
+          { status: 200 },
+        )
+      }
+    }
+
+    console.log("Not an admin user, checking regular users...")
 
     // Test database connection first
     try {
@@ -119,11 +192,11 @@ export async function POST(req: Request) {
       )
     }
 
-    // Find user by email using admin client
+    // Find regular user by email using admin client
     const { data: user, error: fetchError } = await supabaseAdmin
       .from("users")
       .select("*")
-      .eq("email", email)
+      .eq("email", email.toLowerCase())
       .maybeSingle()
 
     if (fetchError) {
@@ -155,7 +228,7 @@ export async function POST(req: Request) {
       )
     }
 
-    console.log("User found:", {
+    console.log("Regular user found:", {
       id: user.id,
       email: user.email,
       username: user.username,
@@ -175,7 +248,7 @@ export async function POST(req: Request) {
       )
     }
 
-    console.log("Verifying password...")
+    console.log("Verifying regular user password...")
 
     // Verify password
     let passwordMatch = false
@@ -205,9 +278,9 @@ export async function POST(req: Request) {
       )
     }
 
-    console.log("Login successful for:", user.email)
+    console.log("Regular user login successful for:", user.email)
 
-    // Return user data without password
+    // Return user data in the format expected by the frontend
     const userData = {
       id: user.id,
       email: user.email,
@@ -217,15 +290,17 @@ export async function POST(req: Request) {
       gamesWon: user.games_won || 0,
       gamesLost: user.games_lost || 0,
       gamesDrawn: user.games_drawn || 0,
+      isAdmin: false,
       createdAt: user.created_at,
     }
 
-    console.log("Returning user data:", userData)
+    console.log("Returning regular user data:", userData)
 
     return NextResponse.json(
       {
         user: userData,
         message: "Login successful",
+        redirectTo: "/Dashboard",
       },
       { status: 200 },
     )
