@@ -62,6 +62,62 @@ export type Database = {
           updated_at?: string
         }
       }
+      tournaments: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          date: string
+          time: string
+          location: string
+          max_participants: number
+          current_participants: number
+          prize_pool: string
+          entry_fee: number
+          status: "open" | "full" | "in_progress" | "completed" | "cancelled"
+          tournament_type: "classical" | "rapid" | "blitz" | "bullet"
+          time_control: string
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          date: string
+          time: string
+          location: string
+          max_participants?: number
+          current_participants?: number
+          prize_pool: string
+          entry_fee?: number
+          status?: "open" | "full" | "in_progress" | "completed" | "cancelled"
+          tournament_type?: "classical" | "rapid" | "blitz" | "bullet"
+          time_control?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          date?: string
+          time?: string
+          location?: string
+          max_participants?: number
+          current_participants?: number
+          prize_pool?: string
+          entry_fee?: number
+          status?: "open" | "full" | "in_progress" | "completed" | "cancelled"
+          tournament_type?: "classical" | "rapid" | "blitz" | "bullet"
+          time_control?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
       games: {
         Row: {
           id: string
@@ -232,4 +288,50 @@ export async function getUserStats(email: string) {
   }
 
   return data
+}
+
+// Tournament helper functions
+export async function getTournaments(filters?: {
+  status?: string
+  type?: string
+  limit?: number
+}) {
+  let query = supabase
+    .from("tournaments")
+    .select("*")
+    .order("date", { ascending: true })
+    .order("time", { ascending: true })
+
+  if (filters?.status) {
+    query = query.eq("status", filters.status)
+  }
+
+  if (filters?.type) {
+    query = query.eq("tournament_type", filters.type)
+  }
+
+  if (filters?.limit) {
+    query = query.limit(filters.limit)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+export async function registerForTournament(tournamentId: string, userEmail: string) {
+  const { error } = await supabase.rpc("update_tournament_participants", {
+    tournament_id: tournamentId,
+    participant_change: 1,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return true
 }
