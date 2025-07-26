@@ -8,9 +8,15 @@ const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proces
   },
 })
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+interface RouteParams {
+  params: Promise<{
+    id: string
+  }>
+}
+
+export async function POST(req: Request, context: RouteParams) {
   try {
-    const tournamentId = params.id
+    const { id: tournamentId } = await context.params
     const body = await req.json()
     const { userEmail, userName } = body
 

@@ -157,7 +157,7 @@ export default function HomePage() {
               <h1 className="text-2xl font-bold text-white">ChessMaster</h1>
             </div>
             <nav className="flex items-center space-x-4">
-              <Link href="/Login">
+              <Link href="/login">
                 <Button variant="outline" className="bg-transparent border-slate-600 text-white hover:bg-slate-800">
                   Login
                 </Button>
@@ -180,7 +180,7 @@ export default function HomePage() {
             Join tournaments, play online matches, and compete with chess players from around the world
           </p>
           <div className="flex justify-center space-x-4">
-            <Link href="/Login">
+            <Link href="/login">
               <Button size="lg" className="bg-amber-600 hover:bg-amber-700 text-slate-900">
                 Start Playing
               </Button>
@@ -379,7 +379,7 @@ export default function HomePage() {
           {/* View All Tournaments Link */}
           {!loading && !error && tournaments.length > 0 && (
             <div className="text-center mt-12">
-              <Link href="/Login">
+              <Link href="/login">
                 <Button
                   variant="outline"
                   size="lg"
