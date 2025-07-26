@@ -96,7 +96,7 @@ export async function POST(req: Request) {
     const { data: adminUser, error: adminFetchError } = await supabaseAdmin
       .from("admin_users")
       .select("*")
-      .eq("email", email.toLowerCase())
+      .eq("email", email)
       .eq("is_active", true)
       .maybeSingle()
 
