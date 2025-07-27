@@ -71,10 +71,18 @@ function fenToBoard(fen: string): (Piece | null)[][] {
   })
 }
 
-// Convert position to algebraic notation
-function positionToAlgebraic(row: number, col: number): Square {
+// Convert position to algebraic notation, accounting for board flip
+function positionToAlgebraic(row: number, col: number, isFlipped: boolean): Square {
   const files = "abcdefgh"
   const ranks = "87654321"
+
+  if (isFlipped) {
+    // When flipped, we need to reverse both row and column indices
+    const flippedRow = 7 - row
+    const flippedCol = 7 - col
+    return (files[flippedCol] + ranks[flippedRow]) as Square
+  }
+
   return (files[col] + ranks[row]) as Square
 }
 
@@ -95,6 +103,9 @@ export default function RealtimeChessBoard({
   // Track if we've already sent a game-end signal for this board state
   const gameEndSentRef = useRef<string | null>(null)
   const lastBoardStateRef = useRef<string>("")
+
+  // Determine if board should be flipped (black at bottom)
+  const isFlipped = userColor === "black"
 
   // Create internal Chess instance for validation
   useEffect(() => {
@@ -170,8 +181,15 @@ export default function RealtimeChessBoard({
 
     // Update the last board state reference
     lastBoardStateRef.current = boardState
-    setBoard(fenToBoard(boardState))
-  }, [boardState, currentTurn, onMove, gameState?.status])
+
+    // Set board, flipping if necessary
+    let boardArray = fenToBoard(boardState)
+    if (isFlipped) {
+      // Flip the board: reverse rows and reverse each row
+      boardArray = boardArray.reverse().map((row) => row.reverse())
+    }
+    setBoard(boardArray)
+  }, [boardState, currentTurn, onMove, gameState?.status, isFlipped])
 
   // Reset the game-end flag when game status changes to finished
   useEffect(() => {
@@ -184,13 +202,13 @@ export default function RealtimeChessBoard({
   const handleSquareClick = async (row: number, col: number) => {
     if (disabled || !isUserTurn || gameState?.status === "finished") return
 
-    const clickedPos = positionToAlgebraic(row, col)
+    const clickedPos = positionToAlgebraic(row, col, isFlipped)
     const chess = new Chess()
     chess.load(boardState)
 
     if (selectedSquare) {
       const [fromRow, fromCol] = selectedSquare
-      const from = positionToAlgebraic(fromRow, fromCol)
+      const from = positionToAlgebraic(fromRow, fromCol, isFlipped)
 
       if (from === clickedPos) {
         setSelectedSquare(null)
@@ -242,9 +260,19 @@ export default function RealtimeChessBoard({
   const isSquareSelected = (row: number, col: number) =>
     selectedSquare && selectedSquare[0] === row && selectedSquare[1] === col
 
-  const isLegalMoveSquare = (row: number, col: number) => legalMoves.includes(positionToAlgebraic(row, col))
+  const isLegalMoveSquare = (row: number, col: number) => {
+    const algebraicPos = positionToAlgebraic(row, col, isFlipped)
+    return legalMoves.includes(algebraicPos)
+  }
 
-  const isSquareLight = (row: number, col: number) => (row + col) % 2 === 0
+  const isSquareLight = (row: number, col: number) => {
+    // For visual consistency, we want the bottom-right square to always be light
+    // regardless of board orientation
+    if (isFlipped) {
+      return (7 - row + (7 - col)) % 2 === 0
+    }
+    return (row + col) % 2 === 0
+  }
 
   const getStatusMessage = () => {
     if (disabled) return "Waiting for opponent..."
@@ -260,39 +288,100 @@ export default function RealtimeChessBoard({
     <div className="flex flex-col items-center space-y-4">
       <div className="text-white text-lg font-semibold">{getStatusMessage()}</div>
 
-      <div className="grid grid-cols-8 gap-0 border-2 border-amber-600 bg-amber-600 p-2 rounded-lg">
-        {board.map((rowData, row) =>
-          rowData.map((piece, col) => {
-            const isSelected = isSquareSelected(row, col)
-            const isLegal = isLegalMoveSquare(row, col)
-
-            return (
-              <div
-                key={`${row}-${col}`}
-                className={`w-12 h-12 flex items-center justify-center text-2xl cursor-pointer relative
-                  ${isSquareLight(row, col) ? "bg-amber-200" : "bg-amber-700"}
-                  ${isSelected ? "ring-4 ring-blue-400" : ""}
-                  ${disabled || !isUserTurn ? "cursor-not-allowed opacity-50" : "hover:bg-opacity-80"}
-                `}
-                onClick={() => handleSquareClick(row, col)}
-              >
-                {isLegal && <div className="absolute w-3 h-3 rounded-full bg-blue-500 opacity-60 z-10" />}
-                {piece && (
-                  <span className={`z-20 ${piece.color === "white" ? "text-slate-100" : "text-black"}`}>
-                    {pieceSymbols[piece.color][piece.type]}
-                  </span>
-                )}
+      {/* Board coordinates - files (a-h) */}
+      <div className="flex items-center space-x-2">
+        <div className="w-8" /> {/* Spacer for rank labels */}
+        <div className="grid grid-cols-8 gap-0">
+          {(isFlipped ? ["h", "g", "f", "e", "d", "c", "b", "a"] : ["a", "b", "c", "d", "e", "f", "g", "h"]).map(
+            (file) => (
+              <div key={file} className="w-12 text-center text-amber-400 text-sm font-semibold">
+                {file}
               </div>
-            )
-          }),
-        )}
+            ),
+          )}
+        </div>
+        <div className="w-8" /> {/* Spacer for rank labels */}
+      </div>
+
+      <div className="flex items-center space-x-2">
+        {/* Rank labels (1-8) - left side */}
+        <div className="flex flex-col gap-0">
+          {(isFlipped ? ["1", "2", "3", "4", "5", "6", "7", "8"] : ["8", "7", "6", "5", "4", "3", "2", "1"]).map(
+            (rank) => (
+              <div
+                key={rank}
+                className="h-12 w-8 flex items-center justify-center text-amber-400 text-sm font-semibold"
+              >
+                {rank}
+              </div>
+            ),
+          )}
+        </div>
+
+        {/* Chess board */}
+        <div className="grid grid-cols-8 gap-0 border-2 border-amber-600 bg-amber-600 p-2 rounded-lg">
+          {board.map((rowData, row) =>
+            rowData.map((piece, col) => {
+              const isSelected = isSquareSelected(row, col)
+              const isLegal = isLegalMoveSquare(row, col)
+
+              return (
+                <div
+                  key={`${row}-${col}`}
+                  className={`w-12 h-12 flex items-center justify-center text-2xl cursor-pointer relative
+                    ${isSquareLight(row, col) ? "bg-amber-200" : "bg-amber-700"}
+                    ${isSelected ? "ring-4 ring-blue-400" : ""}
+                    ${disabled || !isUserTurn ? "cursor-not-allowed opacity-50" : "hover:bg-opacity-80"}
+                  `}
+                  onClick={() => handleSquareClick(row, col)}
+                >
+                  {isLegal && <div className="absolute w-3 h-3 rounded-full bg-blue-500 opacity-60 z-10" />}
+                  {piece && (
+                    <span className={`z-20 ${piece.color === "white" ? "text-slate-100" : "text-black"}`}>
+                      {pieceSymbols[piece.color][piece.type]}
+                    </span>
+                  )}
+                </div>
+              )
+            }),
+          )}
+        </div>
+
+        {/* Rank labels (1-8) - right side */}
+        <div className="flex flex-col gap-0">
+          {(isFlipped ? ["1", "2", "3", "4", "5", "6", "7", "8"] : ["8", "7", "6", "5", "4", "3", "2", "1"]).map(
+            (rank) => (
+              <div
+                key={rank}
+                className="h-12 w-8 flex items-center justify-center text-amber-400 text-sm font-semibold"
+              >
+                {rank}
+              </div>
+            ),
+          )}
+        </div>
+      </div>
+
+      {/* Board coordinates - files (a-h) bottom */}
+      <div className="flex items-center space-x-2">
+        <div className="w-8" /> {/* Spacer for rank labels */}
+        <div className="grid grid-cols-8 gap-0">
+          {(isFlipped ? ["h", "g", "f", "e", "d", "c", "b", "a"] : ["a", "b", "c", "d", "e", "f", "g", "h"]).map(
+            (file) => (
+              <div key={file} className="w-12 text-center text-amber-400 text-sm font-semibold">
+                {file}
+              </div>
+            ),
+          )}
+        </div>
+        <div className="w-8" /> {/* Spacer for rank labels */}
       </div>
 
       <div className="text-slate-400 text-sm text-center max-w-md">
         {disabled
           ? "Game will start when opponent joins."
           : userColor
-            ? "Click a piece to select it, then click a square to move."
+            ? `Playing as ${userColor}. Click a piece to select it, then click a square to move.`
             : "You're spectating this game."}
       </div>
     </div>
