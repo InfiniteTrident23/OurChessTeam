@@ -11,6 +11,7 @@ interface UseSocketProps {
 
 interface GameState {
   roomId: string
+  roomName?: string
   whitePlayer: string | null
   blackPlayer: string | null
   currentTurn: "white" | "black"
@@ -21,6 +22,9 @@ interface GameState {
   winner?: string
   endReason?: string
   drawOfferedBy?: "white" | "black" | null
+  isPrivate?: boolean
+  hasPassword?: boolean
+  timeControl?: string
 }
 
 interface ChatMessage {
@@ -178,19 +182,23 @@ export function useSocket({ serverUrl, userEmail, userName }: UseSocketProps) {
     }
   }, [serverUrl, userEmail, userName]) // Remove gameState from dependencies to avoid infinite loop
 
-  // Join a game room
+  // Join a game room with optional password and room data
   const joinRoom = useCallback(
-    (roomId: string) => {
+    (roomId: string, options?: { password?: string; roomName?: string; timeControl?: string; isPrivate?: boolean }) => {
       if (!socket || !connected) {
         console.error("Socket not connected")
         return
       }
 
-      console.log("Joining room:", roomId)
+      console.log("Joining room:", roomId, "with options:", options)
       socket.emit("join-room", {
         roomId,
         userEmail,
         userName,
+        password: options?.password,
+        roomName: options?.roomName,
+        timeControl: options?.timeControl,
+        isPrivate: options?.isPrivate,
       })
     },
     [socket, connected, userEmail, userName],
