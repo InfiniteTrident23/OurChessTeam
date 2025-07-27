@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter, useParams } from "next/navigation"
+import { useState, useEffect, use } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Users, Clock, MessageCircle, Send, AlertCircle } from "lucide-react"
+import { ArrowLeft, Users, Clock, Lock, MessageCircle, Send, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,15 +12,25 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import RealtimeChessBoard from "@/components/realtime-chess-board"
 import { useSocket } from "@/hooks/useSocket"
 
-export default function GamePage() {
-  const params = useParams()
+interface GamePageProps {
+  params: Promise<{ roomId: string }>
+}
+
+export default function GamePage({ params }: GamePageProps) {
+  const resolvedParams = use(params)
+  const roomId = resolvedParams.roomId
+  const searchParams = useSearchParams()
   const router = useRouter()
-  const roomId = params.roomId as string
   const [userEmail, setUserEmail] = useState("")
   const [userName, setUserName] = useState("")
   const [mounted, setMounted] = useState(false)
   const [chatMessage, setChatMessage] = useState("")
   const [showChat, setShowChat] = useState(false)
+  const [passwordError, setPasswordError] = useState("")
+
+  // Get password from URL params if joining a private room
+  const urlPassword = searchParams.get("password")
+  const isPrivate = searchParams.get("isPrivate") === "true"
 
   useEffect(() => {
     setMounted(true)
@@ -60,10 +70,19 @@ export default function GamePage() {
   // Join room when component mounts and user is authenticated
   useEffect(() => {
     if (mounted && userEmail && userName && connected && roomId) {
-      console.log("Joining room:", roomId)
-      joinRoom(roomId)
+      console.log("Joining room:", roomId, "with password:", urlPassword ? "***" : "none")
+
+      // Create join options with password and room data if provided
+      const joinOptions = {
+        password: urlPassword || undefined,
+        roomName: searchParams.get("roomName") || undefined,
+        timeControl: searchParams.get("timeControl") || undefined,
+        isPrivate: isPrivate,
+      }
+
+      joinRoom(roomId, joinOptions)
     }
-  }, [mounted, userEmail, userName, connected, roomId, joinRoom])
+  }, [mounted, userEmail, userName, connected, roomId, joinRoom, urlPassword, isPrivate, searchParams])
 
   // Debug logging for draw offers
   useEffect(() => {
@@ -80,8 +99,49 @@ export default function GamePage() {
     })
   }, [drawOfferReceived, gameState?.drawOfferedBy, userEmail, gameState])
 
+  // Handle password errors
+  useEffect(() => {
+    if (error === "Invalid password") {
+      setPasswordError("Invalid password. Please check the password and try again.")
+    }
+  }, [error])
+
   if (!mounted) {
     return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" />
+  }
+
+  // Show password error screen
+  if (passwordError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <Card className="bg-slate-800 border-slate-700 w-full max-w-md mx-4">
+          <CardHeader className="text-center">
+            <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-8 h-8 text-white" />
+            </div>
+            <CardTitle className="text-white text-xl">Access Denied</CardTitle>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-slate-300">{passwordError}</p>
+            <div className="flex space-x-3">
+              <Button
+                onClick={() => router.push("/dashboard")}
+                variant="outline"
+                className="flex-1 bg-transparent border-slate-600 text-white hover:bg-slate-700"
+              >
+                Back to Dashboard
+              </Button>
+              <Button
+                onClick={() => window.location.reload()}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-slate-900"
+              >
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   if (!connected) {
@@ -95,7 +155,7 @@ export default function GamePage() {
     )
   }
 
-  if (error) {
+  if (error && error !== "Invalid password") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-center">
@@ -208,7 +268,12 @@ export default function GamePage() {
                 <div className="w-6 h-6 bg-gradient-to-br from-amber-400 to-amber-600 rounded flex items-center justify-center">
                   <span className="text-slate-900 font-bold text-sm">♔</span>
                 </div>
-                <span className="text-white font-semibold">Room: {roomId.slice(-8)}</span>
+                <span className="text-white font-semibold">{gameState?.roomName || `Room: ${roomId.slice(-8)}`}</span>
+                {gameState?.isPrivate && (
+                  <span title="Private Room">
+                    <Lock className="w-4 h-4 text-amber-400" />
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex items-center space-x-2">
@@ -433,6 +498,40 @@ export default function GamePage() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Room Info */}
+            <Card className="bg-slate-800 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white text-sm">Room Info</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Room ID:</span>
+                  <span className="text-slate-300 font-mono">{roomId.slice(-8)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Time Control:</span>
+                  <span className="text-slate-300">{gameState?.timeControl || "10+5"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Status:</span>
+                  <span className="text-slate-300 capitalize">{gameState?.status}</span>
+                </div>
+                {gameState?.isPrivate && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Privacy:</span>
+                    <span className="text-amber-400 flex items-center">
+                      <Lock className="w-3 h-3 mr-1" />
+                      Private
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Moves:</span>
+                  <span className="text-slate-300">{gameState?.moves?.length || 0}</span>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>

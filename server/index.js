@@ -15,13 +15,13 @@ console.log("Client URL:", CLIENT_URL)
 console.log("Port:", PORT)
 console.log("Environment:", process.env.NODE_ENV || "development")
 
-// Configure CORS for Socket.IO
+// Configure CORS for Socket.IO - UPDATE THESE URLs
 const io = new Server(httpServer, {
   cors: {
     origin: [
       CLIENT_URL,
-      "http://localhost:3000", // For local development
-      "https://ourchessteam-nextjs-app.onrender.com", // Replace with your actual Render URL
+      "http://localhost:3000", // Keep for local development
+      "https://your-nextjs-app-name.onrender.com", // Replace with your actual Next.js app URL
     ],
     methods: ["GET", "POST"],
     credentials: true,
@@ -33,7 +33,7 @@ app.use(
     origin: [
       CLIENT_URL,
       "http://localhost:3000",
-      "https://your-app-name.onrender.com", // Replace with your actual Render URL
+      "https://your-nextjs-app-name.onrender.com", // Replace with your actual Next.js app URL
     ],
     credentials: true,
   }),
@@ -55,8 +55,7 @@ async function updateUserTrophies(whitePlayerEmail, blackPlayerEmail, winner, re
     console.log("Winner:", winner)
     console.log("Reason:", reason)
 
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:3000"
-    const response = await fetch(`${clientUrl}/api/update-trophies`, {
+    const response = await fetch(`${CLIENT_URL}/api/update-trophies`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -86,7 +85,7 @@ async function updateUserTrophies(whitePlayerEmail, blackPlayerEmail, winner, re
 
 // Game state management
 class ChessGame {
-  constructor(roomId, whitePlayer) {
+  constructor(roomId, whitePlayer, options = {}) {
     this.roomId = roomId
     this.whitePlayer = whitePlayer
     this.blackPlayer = null
@@ -101,19 +100,41 @@ class ChessGame {
     this.drawOfferedBy = null // which player offered draw
     // Track if trophies have been updated to prevent duplicates
     this.trophiesUpdated = false
+    // Room privacy settings
+    this.isPrivate = options.isPrivate || false
+    this.password = options.password || null
+    this.roomName = options.roomName || `Game ${roomId.slice(-8)}`
+    this.timeControl = options.timeControl || "10+5"
   }
 
-  addPlayer(playerEmail, color) {
+  // Validate password for private rooms
+  validatePassword(providedPassword) {
+    if (!this.isPrivate) return true
+    return this.password === providedPassword
+  }
+
+  addPlayer(playerEmail, color, password = null) {
+    // Check password for private rooms
+    if (this.isPrivate && !this.validatePassword(password)) {
+      return { success: false, error: "Invalid password" }
+    }
+
     if (color === "black" && !this.blackPlayer) {
       this.blackPlayer = playerEmail
       this.status = "playing"
-      return true
+      return { success: true }
     }
-    return false
+    return { success: false, error: "Room is full or invalid color" }
   }
 
-  addSpectator(playerEmail) {
+  addSpectator(playerEmail, password = null) {
+    // Check password for private rooms (spectators also need password)
+    if (this.isPrivate && !this.validatePassword(password)) {
+      return { success: false, error: "Invalid password" }
+    }
+
     this.spectators.add(playerEmail)
+    return { success: true }
   }
 
   removeSpectator(playerEmail) {
@@ -222,6 +243,7 @@ class ChessGame {
   getGameState() {
     return {
       roomId: this.roomId,
+      roomName: this.roomName,
       whitePlayer: this.whitePlayer,
       blackPlayer: this.blackPlayer,
       currentTurn: this.currentTurn,
@@ -231,7 +253,10 @@ class ChessGame {
       spectatorCount: this.spectators.size,
       winner: this.winner,
       endReason: this.endReason,
-      drawOfferedBy: this.drawOfferedBy, // Add draw offer info
+      drawOfferedBy: this.drawOfferedBy,
+      isPrivate: this.isPrivate,
+      hasPassword: this.isPrivate && !!this.password,
+      timeControl: this.timeControl,
     }
   }
 }
@@ -242,7 +267,7 @@ io.on("connection", (socket) => {
 
   // Handle user joining a room
   socket.on("join-room", async (data) => {
-    const { roomId, userEmail, userName } = data
+    const { roomId, userEmail, userName, password } = data
 
     try {
       socket.join(roomId)
@@ -256,17 +281,31 @@ io.on("connection", (socket) => {
       let game = activeGames.get(roomId)
 
       if (!game) {
-        // Create new game
-        game = new ChessGame(roomId, userEmail)
+        // Create new game - extract room options from URL parameters if available
+        const roomOptions = {
+          roomName: data.roomName || `Game ${roomId.slice(-8)}`,
+          timeControl: data.timeControl || "10+5",
+          isPrivate: data.isPrivate || false,
+          password: data.password || null,
+        }
+        game = new ChessGame(roomId, userEmail, roomOptions)
         activeGames.set(roomId, game)
         console.log(`New game created for room ${roomId} by ${userEmail}`)
       } else if (game.whitePlayer !== userEmail && !game.blackPlayer) {
         // Join as black player
-        game.addPlayer(userEmail, "black")
+        const joinResult = game.addPlayer(userEmail, "black", password)
+        if (!joinResult.success) {
+          socket.emit("error", { message: joinResult.error })
+          return
+        }
         console.log(`${userEmail} joined as black player in room ${roomId}`)
       } else {
         // Join as spectator
-        game.addSpectator(userEmail)
+        const spectateResult = game.addSpectator(userEmail, password)
+        if (!spectateResult.success) {
+          socket.emit("error", { message: spectateResult.error })
+          return
+        }
         console.log(`${userEmail} joined as spectator in room ${roomId}`)
       }
 

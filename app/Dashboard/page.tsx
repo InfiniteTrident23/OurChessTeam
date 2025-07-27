@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, Users, Clock, LogOut, X, Search, Trophy, Gamepad2, Zap } from "lucide-react"
+import { Plus, Users, Clock, LogOut, X, Search, Trophy, Gamepad2, Zap, Lock, Copy, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -21,7 +21,9 @@ interface Room {
   timeControl: string
   status: string
   host: string
-  hostTrophies: number // Added to enable trophy-based matching
+  hostTrophies: number
+  isPrivate: boolean
+  hasPassword: boolean
 }
 
 interface UserStats {
@@ -31,8 +33,14 @@ interface UserStats {
 
 const DashboardPage = () => {
   const [showStartPlayingModal, setShowStartPlayingModal] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [selectedRoomId, setSelectedRoomId] = useState("")
+  const [roomPassword, setRoomPassword] = useState("")
   const [roomName, setRoomName] = useState("")
   const [timeControl, setTimeControl] = useState("10+5")
+  const [roomPrivacy, setRoomPrivacy] = useState("open")
+  const [generatedPassword, setGeneratedPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [userEmail, setUserEmail] = useState("")
   const [userStats, setUserStats] = useState<UserStats | null>(null)
   const [activeGames, setActiveGames] = useState<any[]>([])
@@ -102,6 +110,32 @@ const DashboardPage = () => {
     }
   }, [mounted])
 
+  // Generate a random 6-character password
+  const generatePassword = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    let result = ""
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return result
+  }
+
+  // Handle privacy selection change
+  const handlePrivacyChange = (value: string) => {
+    setRoomPrivacy(value)
+    if (value === "closed") {
+      const password = generatePassword()
+      setGeneratedPassword(password)
+    } else {
+      setGeneratedPassword("")
+    }
+  }
+
+  const copyPasswordToClipboard = () => {
+    navigator.clipboard.writeText(generatedPassword)
+    // You could add a toast notification here
+  }
+
   const handleLogout = () => {
     localStorage.removeItem("isLoggedIn")
     localStorage.removeItem("userEmail")
@@ -111,9 +145,24 @@ const DashboardPage = () => {
   const createRoom = () => {
     if (roomName.trim()) {
       const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const roomData = {
+        roomId,
+        roomName: roomName.trim(),
+        timeControl,
+        isPrivate: roomPrivacy === "closed",
+        password: roomPrivacy === "closed" ? generatedPassword : null,
+      }
+
+      // Store room data in localStorage for the game page to access
+      localStorage.setItem(`room_${roomId}`, JSON.stringify(roomData))
+
       setRoomName("")
+      setRoomPrivacy("open")
+      setGeneratedPassword("")
       setShowStartPlayingModal(false)
-      router.push(`/game/${roomId}?timeControl=${timeControl}`)
+      router.push(
+        `/game/${roomId}?timeControl=${timeControl}&isPrivate=${roomPrivacy === "closed"}&password=${generatedPassword}`,
+      )
     }
   }
 
@@ -128,31 +177,24 @@ const DashboardPage = () => {
     }
 
     const currentUserTrophies = userStats.classicalrating
-    const waitingRooms = allRooms.filter(
-      (room) => room.status === "waiting" && room.players < 2,
-    )
+    const waitingRooms = allRooms.filter((room) => room.status === "waiting" && room.players < 2 && !room.isPrivate)
 
     if (waitingRooms.length === 0) {
       setTimeout(() => {
-        alert("No waiting rooms available. Try creating a room!")
+        alert("No public waiting rooms available. Try creating a room!")
         setSearchingMatch(false)
       }, 1000)
       return
     }
 
-    // Find opponents with a higher trophy count
-    const strongerOpponents = waitingRooms.filter(
-      (room) => room.hostTrophies >= currentUserTrophies,
-    )
+    const strongerOpponents = waitingRooms.filter((room) => room.hostTrophies >= currentUserTrophies)
 
     let bestMatch: Room | null = null
 
     if (strongerOpponents.length > 0) {
-      // If there are stronger opponents, find the one with the closest (lowest) trophy count among them
       strongerOpponents.sort((a, b) => a.hostTrophies - b.hostTrophies)
       bestMatch = strongerOpponents[0]
     } else if (waitingRooms.length > 0) {
-      // Fallback: If no one is ranked higher, match with the highest-ranked available player (closest below)
       waitingRooms.sort((a, b) => b.hostTrophies - a.hostTrophies)
       bestMatch = waitingRooms[0]
     }
@@ -164,15 +206,28 @@ const DashboardPage = () => {
         )
         handleJoinRoom(bestMatch.id)
       } else {
-        // This case should ideally not be reached if there are waiting rooms, but it's a safe fallback.
         alert("No suitable match found. Try creating a room instead!")
       }
       setSearchingMatch(false)
     }, 2000)
   }
 
-  const handleJoinRoom = (roomId: string) => {
-    router.push(`/game/${roomId}`)
+  const handleJoinRoom = (roomId: string, requiresPassword = false) => {
+    if (requiresPassword) {
+      setSelectedRoomId(roomId)
+      setShowPasswordModal(true)
+    } else {
+      router.push(`/game/${roomId}`)
+    }
+  }
+
+  const joinPrivateRoom = () => {
+    if (roomPassword.trim()) {
+      router.push(`/game/${selectedRoomId}?password=${encodeURIComponent(roomPassword)}`)
+      setShowPasswordModal(false)
+      setRoomPassword("")
+      setSelectedRoomId("")
+    }
   }
 
   const allRooms: Room[] = activeGames.map(
@@ -185,6 +240,8 @@ const DashboardPage = () => {
       status: game.status,
       host: game.whitePlayer?.split("@")[0] || "Unknown",
       hostTrophies: game.hostTrophies || 0,
+      isPrivate: game.isPrivate || false,
+      hasPassword: game.hasPassword || false,
     }),
   )
 
@@ -290,15 +347,25 @@ const DashboardPage = () => {
                 <Card key={room.id} className="bg-slate-800 border-slate-700 hover:border-slate-600 transition-colors">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-white">{room.name}</CardTitle>
+                      <div className="flex items-center space-x-2">
+                        <CardTitle className="text-white">{room.name}</CardTitle>
+                        {room.isPrivate && (
+                          <div className="relative group">
+                            <Lock className="w-4 h-4 text-amber-400" />
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-700 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                              Private Room
+                            </div>
+                          </div>
+                        )}
+                      </div>
                       <Badge
                         variant={room.status === "waiting" ? "default" : "secondary"}
                         className={
                           room.status === "waiting"
                             ? "bg-green-600"
                             : room.status === "playing"
-                            ? "bg-blue-600"
-                            : "bg-yellow-600"
+                              ? "bg-blue-600"
+                              : "bg-yellow-600"
                         }
                       >
                         {room.status}
@@ -321,12 +388,12 @@ const DashboardPage = () => {
                     </div>
                     <div className="text-slate-400 text-xs">Room ID: {room.id.slice(-12)}</div>
                     <Button
-                      onClick={() => handleJoinRoom(room.id)}
+                      onClick={() => handleJoinRoom(room.id, room.isPrivate && room.players < 2)}
                       className="w-full"
                       variant={room.players < 2 ? "default" : "secondary"}
                       disabled={room.players >= 2}
                     >
-                      {room.players < 2 ? "Join Room" : "Spectate"}
+                      {room.players < 2 ? (room.isPrivate ? "Join Private Room" : "Join Room") : "Spectate"}
                     </Button>
                   </CardContent>
                 </Card>
@@ -390,10 +457,16 @@ const DashboardPage = () => {
                     </div>
                     <Button
                       onClick={findMatchByTrophies}
-                      disabled={searchingMatch || allRooms.filter(r => r.status === 'waiting').length === 0}
+                      disabled={
+                        searchingMatch || allRooms.filter((r) => r.status === "waiting" && !r.isPrivate).length === 0
+                      }
                       className="w-full bg-green-600 hover:bg-green-700 text-white"
                     >
-                      {searchingMatch ? "Finding Match..." : allRooms.filter(r => r.status === 'waiting').length === 0 ? "No Games Available" : "Join Game"}
+                      {searchingMatch
+                        ? "Finding Match..."
+                        : allRooms.filter((r) => r.status === "waiting" && !r.isPrivate).length === 0
+                          ? "No Public Games Available"
+                          : "Join Game"}
                     </Button>
                   </CardContent>
                 </Card>
@@ -437,6 +510,49 @@ const DashboardPage = () => {
                           <option value="30+0">30 + 0 (Classical)</option>
                         </select>
                       </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="roomPrivacy" className="text-white text-sm">
+                          Room Privacy
+                        </Label>
+                        <select
+                          id="roomPrivacy"
+                          value={roomPrivacy}
+                          onChange={(e) => handlePrivacyChange(e.target.value)}
+                          className="w-full p-2 bg-slate-600 border border-slate-500 rounded-md text-white text-sm"
+                        >
+                          <option value="open">Open - Anyone can join</option>
+                          <option value="closed">Closed - Password required</option>
+                        </select>
+                      </div>
+                      {roomPrivacy === "closed" && generatedPassword && (
+                        <div className="space-y-2">
+                          <Label className="text-white text-sm">Room Password</Label>
+                          <div className="flex items-center space-x-2">
+                            <div className="flex-1 bg-slate-600 border border-slate-500 rounded-md p-2 text-white text-sm font-mono">
+                              {showPassword ? generatedPassword : "••••••"}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={copyPasswordToClipboard}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              <Copy className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          <p className="text-slate-400 text-xs">Share this password with players you want to invite</p>
+                        </div>
+                      )}
                       <Button
                         onClick={createRoom}
                         className="w-full bg-amber-600 hover:bg-amber-700 text-slate-900"
@@ -447,6 +563,70 @@ const DashboardPage = () => {
                     </div>
                   </CardContent>
                 </Card>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Password Modal for Joining Private Rooms */}
+        {showPasswordModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-white flex items-center">
+                  <Lock className="w-5 h-5 mr-2 text-amber-400" />
+                  Private Room
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowPasswordModal(false)
+                    setRoomPassword("")
+                    setSelectedRoomId("")
+                  }}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-slate-300 mb-6">This room requires a password to join</p>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="roomPassword" className="text-white text-sm">
+                    Room Password
+                  </Label>
+                  <Input
+                    id="roomPassword"
+                    type="password"
+                    placeholder="Enter room password"
+                    value={roomPassword}
+                    onChange={(e) => setRoomPassword(e.target.value)}
+                    className="bg-slate-600 border-slate-500 text-white text-sm"
+                    onKeyPress={(e) => e.key === "Enter" && joinPrivateRoom()}
+                  />
+                </div>
+                <div className="flex space-x-3">
+                  <Button
+                    onClick={() => {
+                      setShowPasswordModal(false)
+                      setRoomPassword("")
+                      setSelectedRoomId("")
+                    }}
+                    variant="outline"
+                    className="flex-1 bg-transparent border-slate-600 text-white hover:bg-slate-700"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={joinPrivateRoom}
+                    className="flex-1 bg-amber-600 hover:bg-amber-700 text-slate-900"
+                    disabled={!roomPassword.trim()}
+                  >
+                    Join Room
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
