@@ -6,22 +6,83 @@ const cors = require("cors")
 const app = express()
 const httpServer = createServer(app)
 
+// Get environment variables
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000"
+const PORT = process.env.PORT || 3001
+
+console.log("=== SERVER CONFIGURATION ===")
+console.log("Client URL:", CLIENT_URL)
+console.log("Port:", PORT)
+console.log("Environment:", process.env.NODE_ENV || "development")
+
 // Configure CORS for Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: [
+      CLIENT_URL,
+      "http://localhost:3000", // For local development
+      "https://ourchessteam-nextjs-app.onrender.com", // Replace with your actual Render URL
+    ],
     methods: ["GET", "POST"],
     credentials: true,
   },
 })
 
-app.use(cors())
+app.use(
+  cors({
+    origin: [
+      CLIENT_URL,
+      "http://localhost:3000",
+      "https://your-app-name.onrender.com", // Replace with your actual Render URL
+    ],
+    credentials: true,
+  }),
+)
+
 app.use(express.json())
 
 // Store active games and rooms in memory
 const activeGames = new Map()
 const activeRooms = new Map()
 const playerSockets = new Map() // Track player socket connections
+
+// Function to update user trophies via API
+async function updateUserTrophies(whitePlayerEmail, blackPlayerEmail, winner, reason) {
+  try {
+    console.log("=== UPDATING TROPHIES VIA API ===")
+    console.log("White player:", whitePlayerEmail)
+    console.log("Black player:", blackPlayerEmail)
+    console.log("Winner:", winner)
+    console.log("Reason:", reason)
+
+    const clientUrl = process.env.CLIENT_URL || "http://localhost:3000"
+    const response = await fetch(`${clientUrl}/api/update-trophies`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        whitePlayerEmail,
+        blackPlayerEmail,
+        winner,
+        reason,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      console.error("Trophy update API error:", errorData)
+      throw new Error(`API error: ${response.status} - ${errorData.error}`)
+    }
+
+    const result = await response.json()
+    console.log("Trophy update successful:", result)
+    return result
+  } catch (error) {
+    console.error("Error updating user trophies:", error)
+    throw error
+  }
+}
 
 // Game state management
 class ChessGame {
@@ -35,6 +96,11 @@ class ChessGame {
     this.moves = []
     this.spectators = new Set()
     this.createdAt = new Date()
+    // Draw offer system
+    this.drawOffers = new Map() // player -> timestamp
+    this.drawOfferedBy = null // which player offered draw
+    // Track if trophies have been updated to prevent duplicates
+    this.trophiesUpdated = false
   }
 
   addPlayer(playerEmail, color) {
@@ -63,14 +129,94 @@ class ChessGame {
     })
     this.boardState = newBoardState
     this.currentTurn = this.currentTurn === "white" ? "black" : "white"
+
+    // Clear any pending draw offers when a move is made
+    this.drawOffers.clear()
+    this.drawOfferedBy = null
+
     return true
   }
 
-  endGame(winner, reason) {
+  offerDraw(playerEmail) {
+    const playerColor = this.whitePlayer === playerEmail ? "white" : "black"
+
+    // Can't offer draw if it's not your turn or game isn't playing
+    if (this.status !== "playing") return false
+
+    // Check if this player already offered a draw
+    if (this.drawOfferedBy === playerColor) return false
+
+    this.drawOffers.set(playerColor, new Date())
+    this.drawOfferedBy = playerColor
+    return true
+  }
+
+  acceptDraw(playerEmail) {
+    const playerColor = this.whitePlayer === playerEmail ? "white" : "black"
+    const opponentColor = playerColor === "white" ? "black" : "white"
+
+    // Can only accept if opponent offered draw
+    if (this.drawOfferedBy !== opponentColor) return false
+
+    this.endGame(null, "draw by agreement")
+    return true
+  }
+
+  declineDraw(playerEmail) {
+    const playerColor = this.whitePlayer === playerEmail ? "white" : "black"
+    const opponentColor = playerColor === "white" ? "black" : "white"
+
+    // Can only decline if opponent offered draw
+    if (this.drawOfferedBy !== opponentColor) return false
+
+    this.drawOffers.clear()
+    this.drawOfferedBy = null
+    return true
+  }
+
+  async endGame(winner, reason) {
+    console.log("=== ENDING GAME ===")
+    console.log("Winner:", winner)
+    console.log("Reason:", reason)
+    console.log("White player:", this.whitePlayer)
+    console.log("Black player:", this.blackPlayer)
+    console.log("Game status:", this.status)
+    console.log("Trophies already updated:", this.trophiesUpdated)
+
+    // Prevent duplicate game endings
+    if (this.status === "finished") {
+      console.log("Game already finished, skipping duplicate end game call")
+      return
+    }
+
     this.status = "finished"
     this.winner = winner
     this.endReason = reason
     this.endedAt = new Date()
+
+    // Clear any pending draw offers
+    this.drawOffers.clear()
+    this.drawOfferedBy = null
+
+    // Update player trophies if both players exist and not already updated
+    if (this.whitePlayer && this.blackPlayer && !this.trophiesUpdated) {
+      try {
+        console.log("Updating trophies for completed game...")
+        this.trophiesUpdated = true // Mark as updating to prevent duplicates
+        await updateUserTrophies(this.whitePlayer, this.blackPlayer, winner, reason)
+        console.log("Trophy update completed successfully")
+      } catch (error) {
+        console.error("Failed to update trophies:", error)
+        this.trophiesUpdated = false // Reset flag if update failed
+        // Don't throw error - game should still end even if trophy update fails
+      }
+    } else {
+      if (!this.whitePlayer || !this.blackPlayer) {
+        console.log("Skipping trophy update - missing player(s)")
+      } else if (this.trophiesUpdated) {
+        console.log("Skipping trophy update - already updated")
+      }
+    }
   }
 
   getGameState() {
@@ -85,6 +231,7 @@ class ChessGame {
       spectatorCount: this.spectators.size,
       winner: this.winner,
       endReason: this.endReason,
+      drawOfferedBy: this.drawOfferedBy, // Add draw offer info
     }
   }
 }
@@ -154,7 +301,38 @@ io.on("connection", (socket) => {
         return
       }
 
-      // Validate it's the player's turn
+      // Check if this is a special game-end move (checkmate/stalemate)
+      if (from === "game-end") {
+        console.log(`Game ending detected in room ${roomId}: ${to} by ${userEmail}`)
+        console.log(`Current game status: ${game.status}`)
+
+        // Prevent duplicate game endings
+        if (game.status === "finished") {
+          console.log("Game already finished, ignoring duplicate game-end signal")
+          return
+        }
+
+        if (to === "checkmate") {
+          const winner = moveData.winner
+          console.log(`Ending game by checkmate, winner: ${winner}`)
+          await game.endGame(winner, "checkmate")
+        } else if (to === "stalemate") {
+          console.log(`Ending game by stalemate (draw)`)
+          await game.endGame(null, "stalemate")
+        }
+
+        // Broadcast game end to all players
+        io.to(roomId).emit("game-ended", {
+          winner: game.winner,
+          reason: game.endReason,
+          gameState: game.getGameState(),
+        })
+
+        console.log(`Game ${roomId} ended successfully. Winner: ${game.winner}, Reason: ${game.endReason}`)
+        return
+      }
+
+      // Validate it's the player's turn for normal moves
       const playerColor = game.whitePlayer === userEmail ? "white" : "black"
       if (game.currentTurn !== playerColor) {
         socket.emit("error", { message: "Not your turn" })
@@ -178,12 +356,91 @@ io.on("connection", (socket) => {
         moveData,
         gameState: game.getGameState(),
       })
-
-      // TODO: Save move to Supabase database here
-      // await saveMoveToDB(game.getGameState());
     } catch (error) {
       console.error("Error making move:", error)
       socket.emit("error", { message: "Failed to make move" })
+    }
+  })
+
+  // Handle draw offers
+  socket.on("offer-draw", async (data) => {
+    const { roomId } = data
+    const userEmail = socket.userEmail
+
+    try {
+      const game = activeGames.get(roomId)
+
+      if (!game) {
+        socket.emit("error", { message: "Game not found" })
+        return
+      }
+
+      const success = game.offerDraw(userEmail)
+
+      if (!success) {
+        socket.emit("error", { message: "Cannot offer draw at this time" })
+        return
+      }
+
+      const playerColor = game.whitePlayer === userEmail ? "white" : "black"
+      console.log(`Draw offered in room ${roomId} by ${userEmail} (${playerColor})`)
+
+      // Notify all players about the draw offer
+      io.to(roomId).emit("draw-offered", {
+        offeredBy: playerColor,
+        gameState: game.getGameState(),
+      })
+    } catch (error) {
+      console.error("Error offering draw:", error)
+      socket.emit("error", { message: "Failed to offer draw" })
+    }
+  })
+
+  // Handle draw responses
+  socket.on("respond-to-draw", async (data) => {
+    const { roomId, accept } = data
+    const userEmail = socket.userEmail
+
+    try {
+      const game = activeGames.get(roomId)
+
+      if (!game) {
+        socket.emit("error", { message: "Game not found" })
+        return
+      }
+
+      let success = false
+      if (accept) {
+        success = game.acceptDraw(userEmail)
+      } else {
+        success = game.declineDraw(userEmail)
+      }
+
+      if (!success) {
+        socket.emit("error", { message: "Cannot respond to draw offer" })
+        return
+      }
+
+      const playerColor = game.whitePlayer === userEmail ? "white" : "black"
+      console.log(`Draw ${accept ? "accepted" : "declined"} in room ${roomId} by ${userEmail} (${playerColor})`)
+
+      if (accept) {
+        // Game ended in draw
+        io.to(roomId).emit("game-ended", {
+          winner: null,
+          reason: "draw by agreement",
+          gameState: game.getGameState(),
+        })
+      } else {
+        // Draw declined, continue game
+        io.to(roomId).emit("draw-declined", {
+          declinedBy: playerColor,
+          gameState: game.getGameState(),
+        })
+      }
+    } catch (error) {
+      console.error("Error responding to draw:", error)
+      socket.emit("error", { message: "Failed to respond to draw" })
     }
   })
 
@@ -203,9 +460,9 @@ io.on("connection", (socket) => {
       const playerColor = game.whitePlayer === userEmail ? "white" : "black"
       const winner = playerColor === "white" ? "black" : "white"
 
-      game.endGame(winner, "resignation")
+      console.log(`Game resignation in room ${roomId} by ${userEmail} (${playerColor}), winner: ${winner}`)
 
-      console.log(`Game resigned in room ${roomId} by ${userEmail}`)
+      await game.endGame(winner, "resignation")
 
       // Notify all players
       io.to(roomId).emit("game-ended", {
@@ -213,9 +470,6 @@ io.on("connection", (socket) => {
         reason: "resignation",
         gameState: game.getGameState(),
       })
-
-      // TODO: Save final game state to Supabase
-      // await saveGameToDB(game.getGameState());
     } catch (error) {
       console.error("Error resigning game:", error)
       socket.emit("error", { message: "Failed to resign game" })
@@ -297,6 +551,8 @@ app.get("/health", (req, res) => {
     activeGames: activeGames.size,
     connectedPlayers: playerSockets.size,
     timestamp: new Date(),
+    environment: process.env.NODE_ENV || "development",
+    clientUrl: CLIENT_URL,
   })
 })
 
@@ -306,11 +562,19 @@ app.get("/games", (req, res) => {
   res.json(games)
 })
 
-const PORT = process.env.PORT || 3001
+// Root endpoint
+app.get("/", (req, res) => {
+  res.json({
+    message: "Chess Socket.IO Server",
+    status: "running",
+    timestamp: new Date(),
+  })
+})
 
 httpServer.listen(PORT, () => {
   console.log(`🚀 Socket.IO server running on port ${PORT}`)
-  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || "http://localhost:3000"}`)
+  console.log(`🌐 Client URL: ${CLIENT_URL}`)
+  console.log(`🔗 Health check: http://localhost:${PORT}/health`)
 })
 
 // Graceful shutdown

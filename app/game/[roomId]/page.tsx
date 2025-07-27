@@ -3,48 +3,189 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Users, Clock } from "lucide-react"
+import { ArrowLeft, Users, Clock, MessageCircle, Send, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import ChessBoard from "@/components/chess-board"
+import { Input } from "@/components/ui/input"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import RealtimeChessBoard from "@/components/realtime-chess-board"
+import { useSocket } from "@/hooks/useSocket"
 
 export default function GamePage() {
   const params = useParams()
   const router = useRouter()
   const roomId = params.roomId as string
   const [userEmail, setUserEmail] = useState("")
-  const [gameStatus, setGameStatus] = useState<"waiting" | "playing" | "finished">("waiting")
-  const [players, setPlayers] = useState([
-    { name: "You", color: "white", connected: true },
-    { name: "Waiting for opponent...", color: "black", connected: false },
-  ])
+  const [userName, setUserName] = useState("")
+  const [mounted, setMounted] = useState(false)
+  const [chatMessage, setChatMessage] = useState("")
+  const [showChat, setShowChat] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+
     // Check if user is logged in
     const isLoggedIn = localStorage.getItem("isLoggedIn")
     const email = localStorage.getItem("userEmail")
 
     if (!isLoggedIn) {
-      router.push("/login")
+      router.push("/Login")
       return
     }
 
     if (email) {
       setUserEmail(email)
+      setUserName(email.split("@")[0])
+    }
+  }, [router])
+
+  const {
+    connected,
+    gameState,
+    messages,
+    error,
+    drawOfferReceived,
+    joinRoom,
+    makeMove,
+    offerDraw,
+    respondToDraw,
+    resignGame,
+    sendMessage,
+  } = useSocket({
+    userEmail,
+    userName,
+  })
+
+  // Join room when component mounts and user is authenticated
+  useEffect(() => {
+    if (mounted && userEmail && userName && connected && roomId) {
+      console.log("Joining room:", roomId)
+      joinRoom(roomId)
+    }
+  }, [mounted, userEmail, userName, connected, roomId, joinRoom])
+
+  // Debug logging for draw offers
+  useEffect(() => {
+    console.log("Draw offer state changed:", {
+      drawOfferReceived,
+      gameStateDrawOffer: gameState?.drawOfferedBy,
+      userEmail,
+      gameState: gameState
+        ? {
+            whitePlayer: gameState.whitePlayer,
+            blackPlayer: gameState.blackPlayer,
+          }
+        : null,
+    })
+  }, [drawOfferReceived, gameState?.drawOfferedBy, userEmail, gameState])
+
+  if (!mounted) {
+    return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" />
+  }
+
+  if (!connected) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-white text-xl mb-4">Connecting to game server...</div>
+          <div className="text-slate-400">Make sure the Socket.IO server is running on port 3001</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-xl mb-4">Error: {error}</div>
+          <Button onClick={() => window.location.reload()} className="bg-amber-600 hover:bg-amber-700 text-slate-900">
+            Retry Connection
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!gameState) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading game...</div>
+      </div>
+    )
+  }
+
+  // Determine user's color and turn
+  const userColor = gameState.whitePlayer === userEmail ? "white" : gameState.blackPlayer === userEmail ? "black" : null
+  const isUserTurn = userColor === gameState.currentTurn
+
+  const players = [
+    {
+      name: gameState.whitePlayer === userEmail ? "You" : gameState.whitePlayer?.split("@")[0] || "Waiting...",
+      color: "white",
+      connected: !!gameState.whitePlayer,
+      email: gameState.whitePlayer,
+    },
+    {
+      name: gameState.blackPlayer === userEmail ? "You" : gameState.blackPlayer?.split("@")[0] || "Waiting...",
+      color: "black",
+      connected: !!gameState.blackPlayer,
+      email: gameState.blackPlayer,
+    },
+  ]
+
+  const handleMakeMove = async (from: string, to: string, newBoardState: string, moveData: any) => {
+    // Handle special game-end moves (checkmate/stalemate)
+    if (from === "game-end") {
+      console.log("Game ending detected:", to, moveData)
+      return await makeMove(roomId, from, to, newBoardState, moveData)
     }
 
-    // Simulate opponent joining after 3 seconds
-    const timer = setTimeout(() => {
-      setPlayers([
-        { name: "You", color: "white", connected: true },
-        { name: "ChessPlayer42", color: "black", connected: true },
-      ])
-      setGameStatus("playing")
-    }, 3000)
+    // Handle normal moves
+    return await makeMove(roomId, from, to, newBoardState, moveData)
+  }
 
-    return () => clearTimeout(timer)
-  }, [router])
+  const handleOfferDraw = () => {
+    if (userColor && gameState.status === "playing") {
+      console.log("Offering draw as", userColor)
+      offerDraw(roomId)
+    }
+  }
+
+  const handleRespondToDraw = (accept: boolean) => {
+    console.log("Responding to draw:", accept)
+    respondToDraw(roomId, accept)
+  }
+
+  const handleResign = () => {
+    if (userColor && gameState.status === "playing") {
+      resignGame(roomId)
+    }
+  }
+
+  const handleSendMessage = () => {
+    if (chatMessage.trim()) {
+      sendMessage(roomId, chatMessage.trim())
+      setChatMessage("")
+    }
+  }
+
+  // Check if current user has offered draw
+  const hasOfferedDraw = gameState.drawOfferedBy === userColor
+
+  // Check if opponent has offered draw - use both sources for reliability
+  const opponentOfferedDraw =
+    (drawOfferReceived && drawOfferReceived !== userColor) ||
+    (gameState.drawOfferedBy && gameState.drawOfferedBy !== userColor)
+
+  console.log("Draw offer status:", {
+    hasOfferedDraw,
+    opponentOfferedDraw,
+    drawOfferReceived,
+    gameStateDrawOffer: gameState.drawOfferedBy,
+    userColor,
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -67,26 +208,81 @@ export default function GamePage() {
                 <div className="w-6 h-6 bg-gradient-to-br from-amber-400 to-amber-600 rounded flex items-center justify-center">
                   <span className="text-slate-900 font-bold text-sm">♔</span>
                 </div>
-                <span className="text-white font-semibold">Room: {roomId}</span>
+                <span className="text-white font-semibold">Room: {roomId.slice(-8)}</span>
               </div>
             </div>
-            <Badge
-              variant={gameStatus === "playing" ? "default" : "secondary"}
-              className={gameStatus === "playing" ? "bg-green-600" : "bg-yellow-600"}
-            >
-              {gameStatus === "waiting" ? "Waiting for opponent" : "Game in progress"}
-            </Badge>
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
+              <span className="text-slate-300 text-sm">{connected ? "Connected" : "Disconnected"}</span>
+              <Badge
+                variant={gameState.status === "playing" ? "default" : "secondary"}
+                className={gameState.status === "playing" ? "bg-green-600" : "bg-yellow-600"}
+              >
+                {gameState.status === "waiting"
+                  ? "Waiting for opponent"
+                  : gameState.status === "playing"
+                    ? "Game in progress"
+                    : "Game finished"}
+              </Badge>
+            </div>
           </div>
         </div>
       </header>
 
       <div className="container mx-auto px-4 py-8">
+        {/* Draw Offer Alert */}
+        {opponentOfferedDraw && (
+          <Alert className="mb-6 bg-blue-900/50 border-blue-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-blue-200">
+              <div className="font-semibold mb-2">Your opponent has offered a draw!</div>
+              <div className="text-sm mb-3">Do you want to accept the draw and end the game?</div>
+              <div className="flex space-x-2">
+                <Button
+                  size="sm"
+                  onClick={() => handleRespondToDraw(true)}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  Accept Draw
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleRespondToDraw(false)}
+                  className="border-red-600 text-red-400 hover:bg-red-900/20"
+                >
+                  Decline Draw
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Draw Offered by User Alert */}
+        {hasOfferedDraw && !opponentOfferedDraw && (
+          <Alert className="mb-6 bg-yellow-900/50 border-yellow-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-yellow-200">
+              <div className="font-semibold">Draw offer sent!</div>
+              <div className="text-sm mt-1">Waiting for your opponent's response...</div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid lg:grid-cols-4 gap-8">
           {/* Game Board */}
           <div className="lg:col-span-3">
             <Card className="bg-slate-800 border-slate-700">
               <CardContent className="p-6">
-                <ChessBoard disabled={gameStatus !== "playing"} />
+                <RealtimeChessBoard
+                  boardState={gameState.boardState}
+                  currentTurn={gameState.currentTurn}
+                  userColor={userColor}
+                  isUserTurn={isUserTurn}
+                  disabled={gameState.status !== "playing"}
+                  gameState={gameState}
+                  onMove={handleMakeMove}
+                />
               </CardContent>
             </Card>
           </div>
@@ -106,13 +302,26 @@ export default function GamePage() {
                   <div key={index} className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <div
-                        className={`w-4 h-4 rounded-full ${player.color === "white" ? "bg-white" : "bg-slate-900 border border-slate-600"}`}
+                        className={`w-4 h-4 rounded-full ${
+                          player.color === "white" ? "bg-white" : "bg-slate-900 border border-slate-600"
+                        }`}
                       />
                       <span className="text-white">{player.name}</span>
+                      {gameState.currentTurn === player.color && gameState.status === "playing" && (
+                        <span className="text-amber-400 text-sm">●</span>
+                      )}
+                      {gameState.drawOfferedBy === player.color && (
+                        <span className="text-blue-400 text-xs">(offered draw)</span>
+                      )}
                     </div>
                     <div className={`w-2 h-2 rounded-full ${player.connected ? "bg-green-500" : "bg-red-500"}`} />
                   </div>
                 ))}
+                {gameState.spectatorCount > 0 && (
+                  <div className="text-slate-400 text-sm">
+                    {gameState.spectatorCount} spectator{gameState.spectatorCount !== 1 ? "s" : ""}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -143,20 +352,87 @@ export default function GamePage() {
               <CardContent className="p-4 space-y-2">
                 <Button
                   variant="outline"
-                  className="w-full bg-transparent border-slate-600 text-white hover:bg-slate-700"
-                  disabled={gameStatus !== "playing"}
+                  className={`w-full bg-transparent border-slate-600 text-white hover:bg-slate-700 ${
+                    hasOfferedDraw ? "border-yellow-600 text-yellow-400" : ""
+                  }`}
+                  disabled={gameState.status !== "playing" || !userColor || hasOfferedDraw}
+                  onClick={handleOfferDraw}
                 >
-                  Offer Draw
+                  {hasOfferedDraw ? "Draw Offered - Waiting..." : "Offer Draw"}
                 </Button>
                 <Button
                   variant="outline"
                   className="w-full bg-transparent border-red-600 text-red-400 hover:bg-red-900/20"
-                  disabled={gameStatus !== "playing"}
+                  disabled={gameState.status !== "playing" || !userColor}
+                  onClick={handleResign}
                 >
                   Resign
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Chat */}
+            <Card className="bg-slate-800 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center justify-between">
+                  <div className="flex items-center">
+                    <MessageCircle className="w-5 h-5 mr-2" />
+                    Chat
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowChat(!showChat)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    {showChat ? "Hide" : "Show"}
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              {showChat && (
+                <CardContent className="space-y-4">
+                  <div className="h-32 overflow-y-auto space-y-2 bg-slate-900 rounded p-2">
+                    {messages.map((msg) => (
+                      <div key={msg.id} className="text-sm">
+                        <span className="text-amber-400">{msg.userName}:</span>
+                        <span className="text-white ml-2">{msg.message}</span>
+                      </div>
+                    ))}
+                    {messages.length === 0 && <div className="text-slate-500 text-sm">No messages yet...</div>}
+                  </div>
+                  <div className="flex space-x-2">
+                    <Input
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      placeholder="Type a message..."
+                      className="bg-slate-700 border-slate-600 text-white"
+                      onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                    />
+                    <Button
+                      onClick={handleSendMessage}
+                      size="sm"
+                      className="bg-amber-600 hover:bg-amber-700 text-slate-900"
+                    >
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+
+            {/* Game Status */}
+            {gameState.winner !== undefined && (
+              <Card className="bg-slate-800 border-slate-700">
+                <CardContent className="p-4 text-center">
+                  <div className="text-amber-400 font-semibold text-lg">
+                    {gameState.winner === null
+                      ? "Game Drawn!"
+                      : `${gameState.winner === "white" ? "White" : "Black"} Wins!`}
+                  </div>
+                  {gameState.endReason && <div className="text-slate-400 text-sm mt-1">by {gameState.endReason}</div>}
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
