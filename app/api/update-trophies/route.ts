@@ -98,13 +98,13 @@ export async function POST(req: Request) {
     console.log("Getting current user stats...")
     const { data: whiteBefore, error: whiteBeforeError } = await supabaseAdmin
       .from("users")
-      .select("*")
+      .select("id, username, classicalrating")
       .eq("email", whitePlayerEmail)
       .maybeSingle()
 
     const { data: blackBefore, error: blackBeforeError } = await supabaseAdmin
       .from("users")
-      .select("*")
+      .select("id, username, classicalrating")
       .eq("email", blackPlayerEmail)
       .maybeSingle()
 
@@ -145,13 +145,13 @@ export async function POST(req: Request) {
       console.log("Getting updated user stats...")
       const { data: whiteAfter, error: whiteAfterError } = await supabaseAdmin
         .from("users")
-        .select("*")
+        .select("id, username, classicalrating")
         .eq("email", whitePlayerEmail)
         .maybeSingle()
 
       const { data: blackAfter, error: blackAfterError } = await supabaseAdmin
         .from("users")
-        .select("*")
+        .select("id, username, classicalrating")
         .eq("email", blackPlayerEmail)
         .maybeSingle()
 

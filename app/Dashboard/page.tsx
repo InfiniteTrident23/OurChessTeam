@@ -493,23 +493,7 @@ const DashboardPage = () => {
                           className="bg-slate-600 border-slate-500 text-white text-sm"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="timeControl" className="text-white text-sm">
-                          Time Control
-                        </Label>
-                        <select
-                          id="timeControl"
-                          value={timeControl}
-                          onChange={(e) => setTimeControl(e.target.value)}
-                          className="w-full p-2 bg-slate-600 border border-slate-500 rounded-md text-white text-sm"
-                        >
-                          <option value="3+2">3 + 2 (Blitz)</option>
-                          <option value="5+3">5 + 3 (Blitz)</option>
-                          <option value="10+5">10 + 5 (Rapid)</option>
-                          <option value="15+10">15 + 10 (Rapid)</option>
-                          <option value="30+0">30 + 0 (Classical)</option>
-                        </select>
-                      </div>
+                      
                       <div className="space-y-2">
                         <Label htmlFor="roomPrivacy" className="text-white text-sm">
                           Room Privacy
