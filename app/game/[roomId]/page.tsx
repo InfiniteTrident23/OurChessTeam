@@ -125,7 +125,7 @@ export default function GamePage({ params }: GamePageProps) {
             <p className="text-slate-300">{passwordError}</p>
             <div className="flex space-x-3">
               <Button
-                onClick={() => router.push("/dashboard")}
+                onClick={() => router.push("/Dashboard")}
                 variant="outline"
                 className="flex-1 bg-transparent border-slate-600 text-white hover:bg-slate-700"
               >
