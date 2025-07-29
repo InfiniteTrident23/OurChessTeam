@@ -3,7 +3,24 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, Users, Clock, LogOut, X, Search, Trophy, Gamepad2, Zap, Lock, Copy, Eye, EyeOff } from "lucide-react"
+import {
+  Plus,
+  Users,
+  Clock,
+  LogOut,
+  X,
+  Search,
+  Trophy,
+  Gamepad2,
+  Zap,
+  Lock,
+  Copy,
+  Eye,
+  EyeOff,
+  Calendar,
+  MapPin,
+  DollarSign,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -31,6 +48,23 @@ interface UserStats {
   classicalrating: number
 }
 
+interface Tournament {
+  id: string
+  name: string
+  description: string | null
+  date: string
+  time: string
+  location: string
+  max_participants: number
+  current_participants: number
+  prize_pool: string
+  entry_fee: number
+  status: "open" | "full" | "in_progress" | "completed" | "cancelled"
+  tournament_type: "classical" | "rapid" | "blitz" | "bullet"
+  time_control: string
+  registeredAt?: string
+}
+
 const DashboardPage = () => {
   const [showStartPlayingModal, setShowStartPlayingModal] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
@@ -47,6 +81,10 @@ const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchingMatch, setSearchingMatch] = useState(false)
   const [activeTab, setActiveTab] = useState("games")
+  const [registeredTournaments, setRegisteredTournaments] = useState<Tournament[]>([])
+  const [availableTournaments, setAvailableTournaments] = useState<Tournament[]>([])
+  const [tournamentsLoading, setTournamentsLoading] = useState(false)
+  const [registering, setRegistering] = useState<string | null>(null)
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
 
@@ -109,6 +147,64 @@ const DashboardPage = () => {
       return () => clearInterval(interval)
     }
   }, [mounted])
+
+  // Fetch tournaments when the tournaments tab is active
+  useEffect(() => {
+    if (activeTab === "tournaments" && userEmail && mounted) {
+      fetchTournaments()
+    }
+  }, [activeTab, userEmail, mounted])
+
+  const fetchTournaments = async () => {
+    if (!userEmail) return
+
+    setTournamentsLoading(true)
+    try {
+      const response = await fetch(`/api/user-tournaments?email=${encodeURIComponent(userEmail)}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setRegisteredTournaments(data.registeredTournaments || [])
+          setAvailableTournaments(data.availableTournaments || [])
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching tournaments:", error)
+    } finally {
+      setTournamentsLoading(false)
+    }
+  }
+
+  const handleTournamentRegister = async (tournamentId: string) => {
+    if (!userEmail || !userStats) return
+
+    setRegistering(tournamentId)
+    try {
+      const response = await fetch(`/api/tournaments/${tournamentId}/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userEmail,
+          userName: userStats.username,
+        }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        // Refresh tournaments to show updated lists
+        await fetchTournaments()
+      } else {
+        alert(data.error || "Failed to register for tournament")
+      }
+    } catch (error) {
+      console.error("Registration error:", error)
+      alert("Network error. Please try again.")
+    } finally {
+      setRegistering(null)
+    }
+  }
 
   // Generate a random 6-character password
   const generatePassword = () => {
@@ -255,6 +351,58 @@ const DashboardPage = () => {
     )
   })
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    })
+  }
+
+  const formatTime = (timeString: string) => {
+    const [hours, minutes] = timeString.split(":")
+    const date = new Date()
+    date.setHours(Number.parseInt(hours), Number.parseInt(minutes))
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "open":
+        return "bg-green-600"
+      case "full":
+        return "bg-red-600"
+      case "in_progress":
+        return "bg-blue-600"
+      case "completed":
+        return "bg-gray-600"
+      case "cancelled":
+        return "bg-yellow-600"
+      default:
+        return "bg-gray-600"
+    }
+  }
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case "classical":
+        return "text-blue-400"
+      case "rapid":
+        return "text-green-400"
+      case "blitz":
+        return "text-yellow-400"
+      case "bullet":
+        return "text-red-400"
+      default:
+        return "text-gray-400"
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <header className="border-b border-slate-700 bg-slate-900/50 backdrop-blur-sm sticky top-0 z-40">
@@ -319,6 +467,10 @@ const DashboardPage = () => {
             <TabsTrigger value="leaderboard" className="data-[state=active]:bg-slate-700">
               <Trophy className="w-4 h-4 mr-2" />
               Leaderboard
+            </TabsTrigger>
+            <TabsTrigger value="tournaments" className="data-[state=active]:bg-slate-700">
+              <Calendar className="w-4 h-4 mr-2" />
+              Tournaments
             </TabsTrigger>
           </TabsList>
 
@@ -420,6 +572,179 @@ const DashboardPage = () => {
           <TabsContent value="leaderboard">
             <Leaderboard userEmail={userEmail} />
           </TabsContent>
+
+          <TabsContent value="tournaments" className="space-y-6">
+            {tournamentsLoading ? (
+              <div className="text-center py-12">
+                <div className="text-white text-xl">Loading tournaments...</div>
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {/* Registered Tournaments Section */}
+                <div>
+                  <h3 className="text-2xl font-bold text-white mb-4">Registered Tournaments</h3>
+                  {registeredTournaments.length === 0 ? (
+                    <Card className="bg-slate-800 border-slate-700">
+                      <CardContent className="p-8 text-center">
+                        <Calendar className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                        <p className="text-slate-400">You haven't registered for any tournaments yet.</p>
+                        <p className="text-slate-500 text-sm mt-2">Check out the available tournaments below!</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {registeredTournaments.map((tournament) => (
+                        <Card key={tournament.id} className="bg-slate-800 border-slate-700">
+                          <CardHeader>
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <CardTitle className="text-white text-lg mb-2">{tournament.name}</CardTitle>
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <Badge variant="secondary" className="bg-green-600 text-white">
+                                    REGISTERED
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={`border-slate-600 ${getTypeColor(tournament.tournament_type)}`}
+                                  >
+                                    {tournament.tournament_type.toUpperCase()}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="flex items-center text-slate-300">
+                              <Calendar className="w-4 h-4 mr-3 text-slate-400" />
+                              <div>
+                                <div className="font-medium">{formatDate(tournament.date)}</div>
+                                <div className="text-sm text-slate-400">{formatTime(tournament.time)}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center text-slate-300">
+                              <MapPin className="w-4 h-4 mr-3 text-slate-400" />
+                              <span className="text-sm">{tournament.location}</span>
+                            </div>
+                            <div className="flex items-center text-slate-300">
+                              <Users className="w-4 h-4 mr-3 text-slate-400" />
+                              <span className="text-sm">
+                                {tournament.current_participants}/{tournament.max_participants} players
+                              </span>
+                            </div>
+                            <div className="flex items-center text-amber-400">
+                              <Trophy className="w-4 h-4 mr-3" />
+                              <span className="font-semibold">{tournament.prize_pool}</span>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Available Tournaments Section */}
+                <div>
+                  <h3 className="text-2xl font-bold text-white mb-4">Available Tournaments</h3>
+                  {availableTournaments.length === 0 ? (
+                    <Card className="bg-slate-800 border-slate-700">
+                      <CardContent className="p-8 text-center">
+                        <Trophy className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                        <p className="text-slate-400">No tournaments available for registration at the moment.</p>
+                        <p className="text-slate-500 text-sm mt-2">Check back soon for exciting tournaments!</p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {availableTournaments.map((tournament) => (
+                        <Card
+                          key={tournament.id}
+                          className="bg-slate-800 border-slate-700 hover:border-slate-600 transition-colors"
+                        >
+                          <CardHeader>
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <CardTitle className="text-white text-lg mb-2">{tournament.name}</CardTitle>
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <Badge
+                                    variant="secondary"
+                                    className={`${getStatusColor(tournament.status)} text-white`}
+                                  >
+                                    {tournament.status.toUpperCase()}
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className={`border-slate-600 ${getTypeColor(tournament.tournament_type)}`}
+                                  >
+                                    {tournament.tournament_type.toUpperCase()}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="flex items-center text-slate-300">
+                              <Calendar className="w-4 h-4 mr-3 text-slate-400" />
+                              <div>
+                                <div className="font-medium">{formatDate(tournament.date)}</div>
+                                <div className="text-sm text-slate-400">{formatTime(tournament.time)}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center text-slate-300">
+                              <MapPin className="w-4 h-4 mr-3 text-slate-400" />
+                              <span className="text-sm">{tournament.location}</span>
+                            </div>
+                            <div className="flex items-center text-slate-300">
+                              <Users className="w-4 h-4 mr-3 text-slate-400" />
+                              <span className="text-sm">
+                                {tournament.current_participants}/{tournament.max_participants} players
+                              </span>
+                              <div className="ml-auto">
+                                <div className="w-12 bg-slate-700 rounded-full h-1.5">
+                                  <div
+                                    className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
+                                    style={{
+                                      width: `${Math.min(
+                                        (tournament.current_participants / tournament.max_participants) * 100,
+                                        100,
+                                      )}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center text-amber-400">
+                              <Trophy className="w-4 h-4 mr-3" />
+                              <span className="font-semibold">{tournament.prize_pool}</span>
+                            </div>
+                            {tournament.entry_fee > 0 && (
+                              <div className="flex items-center text-slate-300">
+                                <DollarSign className="w-4 h-4 mr-3 text-slate-400" />
+                                <span className="text-sm">Entry Fee: ${tournament.entry_fee}</span>
+                              </div>
+                            )}
+                            <Button
+                              onClick={() => handleTournamentRegister(tournament.id)}
+                              disabled={
+                                registering === tournament.id ||
+                                tournament.current_participants >= tournament.max_participants
+                              }
+                              className="w-full bg-amber-600 hover:bg-amber-700 text-slate-900"
+                            >
+                              {registering === tournament.id
+                                ? "Registering..."
+                                : tournament.current_participants >= tournament.max_participants
+                                  ? "Tournament Full"
+                                  : "Register"}
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         {/* Start Playing Modal */}
@@ -493,7 +818,7 @@ const DashboardPage = () => {
                           className="bg-slate-600 border-slate-500 text-white text-sm"
                         />
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="roomPrivacy" className="text-white text-sm">
                           Room Privacy

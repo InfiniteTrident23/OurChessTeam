@@ -118,6 +118,35 @@ export type Database = {
           updated_at?: string
         }
       }
+      tournament_registrations: {
+        Row: {
+          id: string
+          tournament_id: string
+          user_email: string
+          user_name: string
+          registered_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tournament_id: string
+          user_email: string
+          user_name: string
+          registered_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tournament_id?: string
+          user_email?: string
+          user_name?: string
+          registered_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
       games: {
         Row: {
           id: string
