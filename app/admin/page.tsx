@@ -34,6 +34,8 @@ import {
   Loader2,
   LogOut,
   BarChart3,
+  Eye,
+  UserMinus,
 } from "lucide-react"
 
 interface Tournament {
@@ -72,6 +74,13 @@ interface AdminStats {
   activeGames: number
 }
 
+interface Participant {
+  id: string
+  user_name: string
+  user_email: string
+  registered_at: string
+}
+
 export default function AdminDashboard() {
   const [user, setUser] = useState<any>(null)
   const [tournaments, setTournaments] = useState<Tournament[]>([])
@@ -81,7 +90,10 @@ export default function AdminDashboard() {
   const [error, setError] = useState("")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isParticipantsDialogOpen, setIsParticipantsDialogOpen] = useState(false)
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null)
+  const [participants, setParticipants] = useState<Participant[]>([])
+  const [isLoadingParticipants, setIsLoadingParticipants] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
 
@@ -156,6 +168,62 @@ export default function AdminDashboard() {
       setError("Failed to load dashboard data")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadParticipants = async (tournamentId: string) => {
+    setIsLoadingParticipants(true)
+    try {
+      const response = await fetch(`/api/admin/tournaments/${tournamentId}/participants`)
+      const data = await response.json()
+
+      if (response.ok) {
+        setParticipants(data.participants || [])
+      } else {
+        setError(data.error || "Failed to load participants")
+      }
+    } catch (error) {
+      console.error("Error loading participants:", error)
+      setError("Failed to load participants")
+    } finally {
+      setIsLoadingParticipants(false)
+    }
+  }
+
+  const handleUnregisterParticipant = async (participantId: string, participantName: string) => {
+    if (!selectedTournament) return
+
+    if (!confirm(`Are you sure you want to unregister ${participantName} from this tournament?`)) return
+
+    try {
+      const response = await fetch(`/api/admin/tournaments/${selectedTournament.id}/participants/${participantId}`, {
+        method: "DELETE",
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Remove participant from local state
+        setParticipants(participants.filter((p) => p.id !== participantId))
+
+        // Update tournament participant count in local state
+        setTournaments(
+          tournaments.map((t) =>
+            t.id === selectedTournament.id ? { ...t, current_participants: t.current_participants - 1 } : t,
+          ),
+        )
+
+        // Update selected tournament
+        setSelectedTournament({
+          ...selectedTournament,
+          current_participants: selectedTournament.current_participants - 1,
+        })
+      } else {
+        setError(data.error || "Failed to unregister participant")
+      }
+    } catch (error) {
+      console.error("Error unregistering participant:", error)
+      setError("Failed to unregister participant")
     }
   }
 
@@ -281,6 +349,12 @@ export default function AdminDashboard() {
       time_control: tournament.time_control,
     })
     setIsEditDialogOpen(true)
+  }
+
+  const openParticipantsDialog = (tournament: Tournament) => {
+    setSelectedTournament(tournament)
+    setIsParticipantsDialogOpen(true)
+    loadParticipants(tournament.id)
   }
 
   const getStatusBadge = (status: string) => {
@@ -695,10 +769,19 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex justify-end space-x-2">
                       <Button
+                        onClick={() => openParticipantsDialog(tournament)}
+                        variant="outline"
+                        size="sm"
+                        className="bg-slate-700 text-white border-slate-700 hover:bg-transparent hover:border-slate-600 hover:text-slate-300"
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Participants
+                      </Button>
+                      <Button
                         onClick={() => openEditDialog(tournament)}
                         variant="outline"
                         size="sm"
-                        className="border-slate-600 text-slate-300 hover:bg-slate-700"
+                        className="bg-slate-700 text-white border-slate-700 hover:bg-transparent hover:border-slate-600 hover:text-slate-300"
                       >
                         <Edit className="h-4 w-4 mr-2" />
                         Edit
@@ -707,7 +790,7 @@ export default function AdminDashboard() {
                         onClick={() => handleDeleteTournament(tournament.id)}
                         variant="outline"
                         size="sm"
-                        className="border-red-600 text-red-400 hover:bg-red-900/50"
+                        className="bg-red-900/50 text-red-400 border-red-900/50 hover:bg-slate-700 hover:border-red-600 hover:text-red-300"
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
                         Delete
@@ -717,6 +800,7 @@ export default function AdminDashboard() {
                 </Card>
               ))}
             </div>
+
           </TabsContent>
 
           {/* Leaderboard Tab */}
@@ -989,6 +1073,88 @@ export default function AdminDashboard() {
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* View Participants Dialog */}
+        <Dialog open={isParticipantsDialogOpen} onOpenChange={setIsParticipantsDialogOpen}>
+          <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Tournament Participants</DialogTitle>
+              <DialogDescription className="text-slate-400">
+                {selectedTournament?.name} - {participants.length} participants
+              </DialogDescription>
+            </DialogHeader>
+
+            {isLoadingParticipants ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-amber-400 mr-2" />
+                <span className="text-slate-300">Loading participants...</span>
+              </div>
+            ) : participants.length === 0 ? (
+              <div className="text-center py-8">
+                <Users className="h-12 w-12 text-slate-500 mx-auto mb-4" />
+                <p className="text-slate-400">No participants registered yet</p>
+              </div>
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-700 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">
+                        Name
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">
+                        Email
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">
+                        Registered
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700">
+                    {participants.map((participant) => (
+                      <tr key={participant.id} className="hover:bg-slate-700/50">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm font-medium text-white">{participant.user_name}</div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm text-slate-300">{participant.user_email}</div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm text-slate-400">
+                            {new Date(participant.registered_at).toLocaleDateString()}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <Button
+                            onClick={() => handleUnregisterParticipant(participant.id, participant.user_name)}
+                            variant="outline"
+                            size="sm"
+                            className="border-red-600 text-red-400 hover:bg-red-900/50"
+                          >
+                            <UserMinus className="h-4 w-4 mr-1" />
+                            Unregister
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                onClick={() => setIsParticipantsDialogOpen(false)}
+                className="bg-slate-600 hover:bg-slate-700 text-white"
+              >
+                Close
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
