@@ -1134,9 +1134,9 @@ export default function AdminDashboard() {
                             onClick={() => handleUnregisterParticipant(participant.id, participant.user_name)}
                             variant="outline"
                             size="sm"
-                            className="border-red-600 text-red-400 hover:bg-red-900/50"
+                            className="bg-red-900/50 text-red-400 border-red-900/50 hover:bg-slate-700 hover:border-red-600 hover:text-red-300"
                           >
-                            <UserMinus className="h-4 w-4 mr-1" />
+                            <UserMinus className="h-4 w-4 mr-0" />
                             Unregister
                           </Button>
                         </td>
