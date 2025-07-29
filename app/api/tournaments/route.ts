@@ -10,12 +10,7 @@ const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, proces
 
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url)
-    const status = searchParams.get("status")
-    const type = searchParams.get("type")
-    const limit = Number.parseInt(searchParams.get("limit") || "10")
-
-    console.log("Fetching tournaments with filters:", { status, type, limit })
+    console.log("Tournaments API called")
 
     // Validate environment variables
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -30,8 +25,45 @@ export async function GET(request: Request) {
       )
     }
 
+    // Parse query parameters
+    const { searchParams } = new URL(request.url)
+    const status = searchParams.get("status")
+    const type = searchParams.get("type")
+    const limit = Number.parseInt(searchParams.get("limit") || "10")
+
+    console.log("Fetching tournaments with filters:", { status, type, limit })
+
+    // Test database connection first
+    try {
+      const { data: connectionTest, error: connectionError } = await supabaseAdmin
+        .from("tournaments")
+        .select("count")
+        .limit(1)
+
+      if (connectionError) {
+        console.error("Database connection test failed:", {
+          code: connectionError.code,
+          message: connectionError.message,
+          details: connectionError.details,
+          hint: connectionError.hint,
+        })
+        throw connectionError
+      }
+    } catch (dbError) {
+      console.error("Database connection error:", dbError)
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database connection failed",
+          tournaments: [],
+          debug: process.env.NODE_ENV === "development" ? dbError : undefined,
+        },
+        { status: 500 },
+      )
+    }
+
     // Build query
-    let query = supabaseAdmin.from("tournaments").select("*")
+    let query = supabaseAdmin.from("tournaments").select("*").order("date", { ascending: true }).limit(limit)
 
     // Apply filters
     if (status && status !== "null") {
@@ -42,23 +74,23 @@ export async function GET(request: Request) {
       query = query.eq("tournament_type", type)
     }
 
-    // Apply limit and ordering
-    query = query.order("date", { ascending: true }).order("time", { ascending: true }).limit(limit)
-
+    // Execute query
     const { data: tournaments, error } = await query
 
     if (error) {
-      console.error("Tournament query error:", error)
+      console.error("Tournament query error:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      })
+
       return NextResponse.json(
         {
           success: false,
-          error: `Database error: ${error.message}`,
+          error: error.message || "Failed to fetch tournaments",
           tournaments: [],
-          details: {
-            code: error.code,
-            hint: error.hint,
-            details: error.details,
-          },
+          debug: process.env.NODE_ENV === "development" ? error : undefined,
         },
         { status: 500 },
       )
@@ -76,8 +108,9 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error",
         tournaments: [],
+        debug: process.env.NODE_ENV === "development" ? error : undefined,
       },
       { status: 500 },
     )

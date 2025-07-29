@@ -347,7 +347,7 @@ export default function HomePage() {
                     {/* Action Button */}
                     <div className="pt-2">
                       {tournament.status === "open" ? (
-                        <Link href="/Login">
+                        <Link href="/login">
                           <Button className="w-full bg-amber-600 hover:bg-amber-700 text-slate-900">
                             Register Now
                           </Button>
@@ -439,7 +439,7 @@ export default function HomePage() {
                 Create Free Account
               </Button>
             </Link>
-            <Link href="/Login">
+            <Link href="/login">
               <Button
                 size="lg"
                 variant="outline"
